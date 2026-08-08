@@ -1,0 +1,37 @@
+[package]
+name = "verdant-hollow"
+description = "A farming and life simulation built on the Verdant engine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+name = "verdant_hollow"
+path = "src/lib.rs"
+
+[[bin]]
+name = "verdant-hollow"
+path = "src/main.rs"
+
+[dependencies]
+verdant-core-math = { workspace = true }
+verdant-core-ecs = { workspace = true }
+verdant-physics-2d = { workspace = true }
+verdant-tilemap = { workspace = true }
+verdant-input = { workspace = true }
+verdant-save = { workspace = true }
+verdant-render-2d = { workspace = true }
+verdant-procgen-art = { workspace = true }
+verdant-runtime = { workspace = true }
+winit = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+pollster = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+
+[lints]
+workspace = true

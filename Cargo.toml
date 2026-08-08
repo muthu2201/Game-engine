@@ -10,6 +10,7 @@ members = [
     "crates/render-2d",
     "crates/procgen-art",
     "crates/runtime",
+    "games/verdant-hollow",
 ]
 
 [workspace.package]
