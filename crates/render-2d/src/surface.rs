@@ -186,6 +186,15 @@ impl SurfaceContext {
             | wgpu::CurrentSurfaceTexture::Validation => None,
         }
     }
+
+    /// Hands a finished frame back to the compositor.
+    ///
+    /// A [`wgpu::SurfaceTexture`] dropped without this is discarded rather
+    /// than shown, so every successful [`SurfaceContext::acquire`] must end
+    /// here.
+    pub fn present(&self, frame: wgpu::SurfaceTexture) {
+        self.gpu.queue.present(frame);
+    }
 }
 
 impl std::fmt::Debug for SurfaceContext {
@@ -202,9 +211,7 @@ impl std::fmt::Debug for SurfaceContext {
 /// bytes unchanged.
 ///
 /// Exposed to the crate so the choice can be tested without a window.
-pub(crate) fn preferred_format(
-    formats: &[wgpu::TextureFormat],
-) -> Option<wgpu::TextureFormat> {
+pub(crate) fn preferred_format(formats: &[wgpu::TextureFormat]) -> Option<wgpu::TextureFormat> {
     // In preference order: the offscreen format itself, its swapped-channel
     // twin, then any other non-sRGB format, then whatever is on offer.
     const LINEAR: [wgpu::TextureFormat; 2] = [

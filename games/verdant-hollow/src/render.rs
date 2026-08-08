@@ -25,7 +25,7 @@ use crate::items::{crop, item, CropId, ItemId, CROPS, ITEMS};
 use crate::sim::{ActionOutcome, FacingState, Game, MAX_ENERGY, MAX_FRIENDSHIP};
 use crate::world::{tiles, TILE_SIZE};
 use std::collections::BTreeMap;
-use verdant_core_math::{fx, Fx, IVec2, Rect, Rng, Vec2};
+use verdant_core_math::{Fx, IVec2, Rect, Rng, Vec2};
 use verdant_procgen_art::{
     font, generate_character, generate_crop, generate_item_icon, generate_terrain_tile,
     generate_tree, Canvas, CharacterStyle, Palette, PaletteIndex, Rgba, WALK_FRAMES,
@@ -228,8 +228,7 @@ impl AtlasBuilder {
             let source = (row * canvas.width() * 4) as usize;
             let destination = (((y + row) * page + x) * 4) as usize;
             let width = (canvas.width() * 4) as usize;
-            buffer[destination..destination + width]
-                .copy_from_slice(&rgba[source..source + width]);
+            buffer[destination..destination + width].copy_from_slice(&rgba[source..source + width]);
         }
     }
 
@@ -448,7 +447,8 @@ impl Art {
                 };
                 let height = tile * 3 - u32::try_from(variant % 2).unwrap_or(0) * 4;
                 let sprite = generate_tree(
-                    seed.wrapping_add(11).wrapping_add(index.wrapping_mul(5_147)),
+                    seed.wrapping_add(11)
+                        .wrapping_add(index.wrapping_mul(5_147)),
                     tile * 2,
                     height,
                     foliage,
@@ -599,10 +599,7 @@ impl Art {
     /// A character frame for a villager.
     #[must_use]
     pub fn villager_frame(&self, villager: usize, facing: FacingState, frame: usize) -> Region {
-        let cycle = self
-            .villagers
-            .get(villager)
-            .unwrap_or(&self.player);
+        let cycle = self.villagers.get(villager).unwrap_or(&self.player);
         let index = facing.to_art().index() * WALK_FRAMES + frame % WALK_FRAMES;
         cycle[index.min(cycle.len() - 1)]
     }
@@ -691,7 +688,7 @@ fn roof_tile(size: u32, base: Rgba) -> (Canvas, Palette) {
 fn door_tile(size: u32, base: Rgba) -> (Canvas, Palette) {
     let mut palette = Palette::new("door", &[]);
     let shades = palette.add_ramp(base, 3);
-    let frame = palette.push(Rgba::hex(0x3A_26_16));
+    let frame = palette.push(Rgba::hex(0x3A2616));
     let handle = palette.push(Rgba::hex(0xE0_C8_60));
 
     let mut canvas = Canvas::new(size, size);
@@ -725,6 +722,35 @@ fn ladder_tile(size: u32, base: Rgba) -> (Canvas, Palette) {
         rung += 4;
     }
     (canvas, palette)
+}
+
+/// A rectangle in HUD pixel space.
+///
+/// A named type rather than four loose integers: `fill(x, y, width, height)`
+/// and `fill(left, top, right, bottom)` are indistinguishable at a call site,
+/// and getting them the wrong way round is silent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Panel {
+    /// Distance from the left edge of the frame.
+    x: i32,
+    /// Distance from the top edge of the frame.
+    y: i32,
+    /// Width in pixels.
+    width: i32,
+    /// Height in pixels.
+    height: i32,
+}
+
+impl Panel {
+    /// A panel at a position with a size.
+    const fn new(x: i32, y: i32, width: i32, height: i32) -> Panel {
+        Panel {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
 }
 
 /// Builds the frame's sprite list from game state.
@@ -921,7 +947,13 @@ impl Scene {
     }
 
     /// Draws a filled rectangle in screen space, for HUD panels and bars.
-    fn fill(&mut self, art: &Art, x: i32, y: i32, width: i32, height: i32, color: Color, z: i32) {
+    fn fill(&mut self, art: &Art, panel: Panel, color: Color, z: i32) {
+        let Panel {
+            x,
+            y,
+            width,
+            height,
+        } = panel;
         let page = art.atlas.page_size();
         let color = self.lit(color);
         let position = self.screen_to_world(Vec2::from_ints(x, y + height));
@@ -962,14 +994,7 @@ impl Scene {
     /// Pixel text over a detailed background is unreadable without one; the
     /// shadow is what lets the HUD sit on grass, water or stone unchanged.
     fn shadowed_text(&mut self, art: &Art, x: i32, y: i32, string: &str, color: Color, z: i32) {
-        self.text(
-            art,
-            x + 1,
-            y + 1,
-            string,
-            Color::BLACK.with_alpha(0.65),
-            z,
-        );
+        self.text(art, x + 1, y + 1, string, Color::BLACK.with_alpha(0.65), z);
         self.text(art, x, y, string, color, z);
     }
 
@@ -1009,10 +1034,7 @@ impl Scene {
         let x = width - panel_width - 6;
         self.fill(
             art,
-            x,
-            6,
-            panel_width,
-            34,
+            Panel::new(x, 6, panel_width, 34),
             Color::from_srgb_hex(0x1E_18_24).with_alpha(0.72),
             Z_HUD_PANEL,
         );
@@ -1035,7 +1057,10 @@ impl Scene {
             art,
             x + 6,
             21,
-            &format!("{display_hour}:{minute:02}{suffix}  {}", game.calendar.weather.name()),
+            &format!(
+                "{display_hour}:{minute:02}{suffix}  {}",
+                game.calendar.weather.name()
+            ),
             Color::from_srgb_hex(0xC8_D8_F0),
             Z_HUD_TEXT,
         );
@@ -1057,10 +1082,7 @@ impl Scene {
 
         self.fill(
             art,
-            x - 2,
-            y - 2,
-            bar_width + 4,
-            bar_height + 4,
+            Panel::new(x - 2, y - 2, bar_width + 4, bar_height + 4),
             Color::from_srgb_hex(0x1E_18_24).with_alpha(0.78),
             Z_HUD_PANEL,
         );
@@ -1076,10 +1098,7 @@ impl Scene {
         };
         self.fill(
             art,
-            x,
-            y + (bar_height - filled),
-            bar_width,
-            filled,
+            Panel::new(x, y + (bar_height - filled), bar_width, filled),
             colour,
             Z_HUD_TEXT,
         );
@@ -1096,13 +1115,19 @@ impl Scene {
 
         for index in 0..slots {
             let left = x + index * (slot + gap);
-            let selected = usize::try_from(index).unwrap_or(0) == game.player.inventory.selected_index();
+            let selected =
+                usize::try_from(index).unwrap_or(0) == game.player.inventory.selected_index();
             let background = if selected {
                 Color::from_srgb_hex(0xF0_D8_A0).with_alpha(0.92)
             } else {
                 Color::from_srgb_hex(0x1E_18_24).with_alpha(0.72)
             };
-            self.fill(art, left, y, slot, slot, background, Z_HUD_PANEL);
+            self.fill(
+                art,
+                Panel::new(left, y, slot, slot),
+                background,
+                Z_HUD_PANEL,
+            );
 
             let Some(stack) = game
                 .player
@@ -1127,8 +1152,7 @@ impl Scene {
             }
             if stack.count > 1 {
                 let label = stack.count.to_string();
-                let label_width =
-                    i32::try_from(font::text_width(&label)).unwrap_or(0);
+                let label_width = i32::try_from(font::text_width(&label)).unwrap_or(0);
                 self.shadowed_text(
                     art,
                     left + slot - label_width - 2,
@@ -1163,10 +1187,7 @@ impl Scene {
         let text_width = i32::try_from(font::text_width(&message)).unwrap_or(0);
         self.fill(
             art,
-            6,
-            height - 26,
-            text_width + 10,
-            15,
+            Panel::new(6, height - 26, text_width + 10, 15),
             Color::from_srgb_hex(0x1E_18_24).with_alpha(0.78),
             Z_HUD_PANEL,
         );
@@ -1293,8 +1314,7 @@ fn tile_anchor(cell: IVec2) -> Vec2 {
 /// still stands still and one walking cycles at a rate that matches their
 /// speed — the same rule the player's animation follows.
 fn walk_frame(position: Vec2) -> usize {
-    let travelled = usize::try_from((position.x + position.y).to_int().unsigned_abs())
-        .unwrap_or(0);
+    let travelled = usize::try_from((position.x + position.y).to_int().unsigned_abs()).unwrap_or(0);
     (travelled / 6) % WALK_FRAMES
 }
 
@@ -1335,9 +1355,10 @@ fn describe_farm(action: crate::farm::FarmAction) -> Option<String> {
         FarmAction::Tilled => Some("Tilled the soil.".to_owned()),
         FarmAction::Watered => Some("Watered.".to_owned()),
         FarmAction::Planted(id) => Some(format!("Planted {}.", crop(id).name)),
-        FarmAction::Harvested { item: produce, count } => {
-            Some(format!("Harvested {} x{}", item(produce).name, count))
-        }
+        FarmAction::Harvested {
+            item: produce,
+            count,
+        } => Some(format!("Harvested {} x{}", item(produce).name, count)),
         FarmAction::Cleared => Some("Cleared the plot.".to_owned()),
     }
 }
@@ -1494,17 +1515,11 @@ mod tests {
         // 480x270 into 1920x1080 is exactly 4x with nothing left over, which
         // is the whole reason for that resolution.
         assert_eq!(
-            verdant_render_2d::integer_scale(
-                (INTERNAL_WIDTH, INTERNAL_HEIGHT),
-                (1920, 1080)
-            ),
+            verdant_render_2d::integer_scale((INTERNAL_WIDTH, INTERNAL_HEIGHT), (1920, 1080)),
             4
         );
         assert_eq!(
-            verdant_render_2d::letterbox(
-                (INTERNAL_WIDTH, INTERNAL_HEIGHT),
-                (1920, 1080)
-            ),
+            verdant_render_2d::letterbox((INTERNAL_WIDTH, INTERNAL_HEIGHT), (1920, 1080)),
             ((0, 0), (1920, 1080))
         );
     }
@@ -2088,7 +2103,7 @@ mod tests {
         // must be the bottom of its cell or the whole map sits half a tile
         // high.
         let anchor = tile_anchor(IVec2::new(3, 4));
-        assert_eq!(anchor.x, fx(3) * TILE_SIZE + TILE_SIZE * Fx::HALF);
-        assert_eq!(anchor.y, fx(4) * TILE_SIZE + TILE_SIZE);
+        assert_eq!(anchor.x, Fx::from_num(3) * TILE_SIZE + TILE_SIZE * Fx::HALF);
+        assert_eq!(anchor.y, Fx::from_num(4) * TILE_SIZE + TILE_SIZE);
     }
 }

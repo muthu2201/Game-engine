@@ -59,13 +59,13 @@ impl Presenter {
                 ],
             });
 
-        let pipeline_layout =
-            gpu.device
-                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("verdant present pipeline layout"),
-                    bind_group_layouts: &[Some(&layout)],
-                    immediate_size: 0,
-                });
+        let pipeline_layout = gpu
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("verdant present pipeline layout"),
+                bind_group_layouts: &[Some(&layout)],
+                immediate_size: 0,
+            });
 
         let pipeline = gpu
             .device

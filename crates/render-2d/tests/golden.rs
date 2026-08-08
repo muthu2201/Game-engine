@@ -17,8 +17,8 @@
 
 use verdant_core_math::{fx, Fx, Rect, Vec2};
 use verdant_render_2d::{
-    Camera2D, Color, DrawSprite, FrameSettings, GpuContext, Presenter, RenderTarget,
-    SpriteBatcher, SpriteRenderer, TextureArray,
+    Camera2D, Color, DrawSprite, FrameSettings, GpuContext, Presenter, RenderTarget, SpriteBatcher,
+    SpriteRenderer, TextureArray,
 };
 
 /// The scene fixture the tests draw with.
@@ -698,7 +698,10 @@ fn presenting_scales_the_frame_by_a_whole_number() {
     // The sprite covered the low-res rect x 0..16, y 0..16; at 4x that is
     // 0..64 in both axes of the window.
     let sprite = frame.at(32, 32);
-    assert!(sprite[0] > 100, "the scaled sprite should be here: {sprite:?}");
+    assert!(
+        sprite[0] > 100,
+        "the scaled sprite should be here: {sprite:?}"
+    );
     assert_eq!(
         frame.at(96, 96),
         [0, 0, 0, 255],
@@ -739,7 +742,10 @@ fn a_source_texel_covers_an_exact_block_of_screen_pixels() {
 
     // The edge sits at low-res x = 16, so window x = 64 exactly. The pixel
     // before it is inside the sprite and the pixel at it is outside.
-    assert!(frame.at(63, 32)[0] > 100, "x=63 should be inside the sprite");
+    assert!(
+        frame.at(63, 32)[0] > 100,
+        "x=63 should be inside the sprite"
+    );
     assert_eq!(
         frame.at(64, 32),
         [0, 0, 0, 255],

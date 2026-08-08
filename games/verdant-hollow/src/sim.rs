@@ -153,7 +153,9 @@ impl Player {
             return 0;
         }
         const FRAMES_PER_SECOND: i32 = 8;
-        ((self.animation_time * FRAMES_PER_SECOND).floor_int().rem_euclid(4)) as usize
+        ((self.animation_time * FRAMES_PER_SECOND)
+            .floor_int()
+            .rem_euclid(4)) as usize
     }
 
     /// True when the player is too tired to keep working.
@@ -241,11 +243,26 @@ pub enum Destination {
 /// variety comes from where their homes are and when they set out, not from
 /// each having a bespoke itinerary.
 pub static VILLAGE_SCHEDULE: &[ScheduleEntry] = &[
-    ScheduleEntry { hour: 6, destination: Destination::Home },
-    ScheduleEntry { hour: 9, destination: Destination::Square },
-    ScheduleEntry { hour: 13, destination: Destination::Shop },
-    ScheduleEntry { hour: 17, destination: Destination::Square },
-    ScheduleEntry { hour: 20, destination: Destination::Home },
+    ScheduleEntry {
+        hour: 6,
+        destination: Destination::Home,
+    },
+    ScheduleEntry {
+        hour: 9,
+        destination: Destination::Square,
+    },
+    ScheduleEntry {
+        hour: 13,
+        destination: Destination::Shop,
+    },
+    ScheduleEntry {
+        hour: 17,
+        destination: Destination::Square,
+    },
+    ScheduleEntry {
+        hour: 20,
+        destination: Destination::Home,
+    },
 ];
 
 impl Villager {
@@ -296,8 +313,11 @@ impl Villager {
             return None;
         }
         self.gifted_today = true;
-        let points =
-            if gift == self.favourite_gift { FAVOURITE_GIFT_POINTS } else { GIFT_POINTS };
+        let points = if gift == self.favourite_gift {
+            FAVOURITE_GIFT_POINTS
+        } else {
+            GIFT_POINTS
+        };
         self.friendship = (self.friendship + points).min(MAX_FRIENDSHIP);
         Some(points)
     }
@@ -375,8 +395,12 @@ impl Game {
         // Villagers are generated from the world seed, so a given valley is
         // always populated by the same people.
         let names = ["Mara", "Tobin", "Silva", "Rook"];
-        let favourites =
-            [ItemId::Parsnip, ItemId::Cauliflower, ItemId::Chub, ItemId::Gemstone];
+        let favourites = [
+            ItemId::Parsnip,
+            ItemId::Cauliflower,
+            ItemId::Chub,
+            ItemId::Gemstone,
+        ];
         let villagers = valley
             .layout
             .homes
@@ -390,10 +414,7 @@ impl Game {
                 friendship: 0,
                 gifted_today: false,
                 greeted_today: false,
-                favourite_gift: favourites
-                    .get(index)
-                    .copied()
-                    .unwrap_or(ItemId::Parsnip),
+                favourite_gift: favourites.get(index).copied().unwrap_or(ItemId::Parsnip),
                 appearance_seed: seed
                     .wrapping_mul(31)
                     .wrapping_add(index as u64)
@@ -484,8 +505,13 @@ impl Game {
                 || self.villagers[index].path_index >= self.villagers[index].path.len()
                 || self.villagers[index].path.last() != Some(&destination);
             if needs_path {
-                let route =
-                    find_path(&self.map, current_tile, destination, Movement::Orthogonal, 8192);
+                let route = find_path(
+                    &self.map,
+                    current_tile,
+                    destination,
+                    Movement::Orthogonal,
+                    8192,
+                );
                 self.villagers[index].path = route.unwrap_or_default();
                 self.villagers[index].path_index = 0;
             }
@@ -563,7 +589,11 @@ impl Game {
                 // Only bare ground can be broken, and only inside the farm.
                 if self.is_farmable(target) && ground_tile == tiles::GRASS {
                     ActionOutcome::Farm(self.farm.till(target))
-                } else if self.farm.plot(target).is_some_and(|plot| plot.planting.is_none()) {
+                } else if self
+                    .farm
+                    .plot(target)
+                    .is_some_and(|plot| plot.planting.is_none())
+                {
                     ActionOutcome::Farm(self.farm.clear(target))
                 } else {
                     ActionOutcome::Nothing
@@ -574,13 +604,19 @@ impl Game {
                 self.replace_tile(target, tiles::GRASS);
                 let count = 2 + self.rng.below(3);
                 self.player.inventory.add(ItemId::Wood, count);
-                ActionOutcome::Gathered { item: ItemId::Wood, count }
+                ActionOutcome::Gathered {
+                    item: ItemId::Wood,
+                    count,
+                }
             }
             ItemId::Pickaxe if ground_tile == tiles::ROCK => {
                 self.replace_tile(target, tiles::GRASS);
                 let count = 1 + self.rng.below(2);
                 self.player.inventory.add(ItemId::Stone, count);
-                ActionOutcome::Gathered { item: ItemId::Stone, count }
+                ActionOutcome::Gathered {
+                    item: ItemId::Stone,
+                    count,
+                }
             }
             _ => ActionOutcome::Nothing,
         };
@@ -651,7 +687,11 @@ impl Game {
 
         // Otherwise, try to harvest.
         let action = self.farm.harvest(target, &mut self.rng);
-        if let FarmAction::Harvested { item: produce, count } = action {
+        if let FarmAction::Harvested {
+            item: produce,
+            count,
+        } = action
+        {
             self.player.inventory.add(produce, count);
         }
         self.last_outcome = ActionOutcome::Farm(action);
@@ -721,7 +761,11 @@ impl Game {
         for _ in 0..6 {
             let cell = IVec2::new(self.rng.range(1, width - 2), self.rng.range(1, height - 2));
             if layer.get(cell) == tiles::GRASS {
-                let tile = if self.rng.coin_flip() { tiles::TREE } else { tiles::ROCK };
+                let tile = if self.rng.coin_flip() {
+                    tiles::TREE
+                } else {
+                    tiles::ROCK
+                };
                 layer.set(cell, tile);
             }
         }
@@ -866,7 +910,10 @@ mod tests {
     fn the_target_tile_is_the_one_being_faced() {
         let mut game = game();
         game.player.facing = FacingState::East;
-        assert_eq!(game.player.target_tile(), game.player.tile() + IVec2::new(1, 0));
+        assert_eq!(
+            game.player.target_tile(),
+            game.player.tile() + IVec2::new(1, 0)
+        );
     }
 
     #[test]
@@ -927,7 +974,10 @@ mod tests {
         let energy_before = game.player.energy;
         assert_eq!(game.use_selected(), ActionOutcome::Farm(FarmAction::Tilled));
         assert!(game.farm.plot(plot).is_some());
-        assert!(game.player.energy < energy_before, "tilling should cost energy");
+        assert!(
+            game.player.energy < energy_before,
+            "tilling should cost energy"
+        );
     }
 
     #[test]
@@ -964,7 +1014,10 @@ mod tests {
             game.use_selected(),
             ActionOutcome::Farm(FarmAction::Planted(CropId::Parsnip))
         );
-        assert_eq!(game.player.inventory.count_of(ItemId::ParsnipSeeds), seeds_before - 1);
+        assert_eq!(
+            game.player.inventory.count_of(ItemId::ParsnipSeeds),
+            seeds_before - 1
+        );
     }
 
     #[test]
@@ -975,7 +1028,8 @@ mod tests {
         game.farm.plant(plot, CropId::Parsnip, Season::Spring);
         for _ in 0..crate::items::crop(CropId::Parsnip).days_to_maturity() {
             game.farm.water(plot);
-            game.farm.advance_day(Season::Spring, game.calendar.weather, &mut game.rng);
+            game.farm
+                .advance_day(Season::Spring, game.calendar.weather, &mut game.rng);
         }
 
         game.player.position = (plot - IVec2::new(0, 1)).to_world_centre(TILE_SIZE);
@@ -998,7 +1052,11 @@ mod tests {
         }
         assert!(game.player.inventory.gold > gold_before);
         assert_eq!(game.player.inventory.count_of(ItemId::Parsnip), 0);
-        assert_eq!(game.player.inventory.count_of(ItemId::Hoe), 1, "tools are not shipped");
+        assert_eq!(
+            game.player.inventory.count_of(ItemId::Hoe),
+            1,
+            "tools are not shipped"
+        );
     }
 
     #[test]
@@ -1013,7 +1071,10 @@ mod tests {
         assert_eq!(after_first, GREETING_POINTS);
 
         game.interact();
-        assert_eq!(game.villagers[0].friendship, after_first, "one greeting a day");
+        assert_eq!(
+            game.villagers[0].friendship, after_first,
+            "one greeting a day"
+        );
     }
 
     #[test]
@@ -1031,7 +1092,10 @@ mod tests {
             path: Vec::new(),
             path_index: 0,
         };
-        assert_eq!(villager.receive_gift(ItemId::Parsnip), Some(FAVOURITE_GIFT_POINTS));
+        assert_eq!(
+            villager.receive_gift(ItemId::Parsnip),
+            Some(FAVOURITE_GIFT_POINTS)
+        );
 
         villager.gifted_today = false;
         villager.friendship = 0;
@@ -1050,7 +1114,9 @@ mod tests {
             .iter()
             .position(|slot| slot.is_some_and(|slot| slot.item == ItemId::Parsnip))
             .expect("parsnips are carried");
-        game.player.inventory.select(index.min(crate::inventory::HOTBAR_SLOTS - 1));
+        game.player
+            .inventory
+            .select(index.min(crate::inventory::HOTBAR_SLOTS - 1));
 
         let home = game.villagers[0].home;
         game.player.position = home.to_world_centre(TILE_SIZE);
@@ -1088,8 +1154,14 @@ mod tests {
         let game = game();
         let villager = &game.villagers[0];
         assert_eq!(villager.destination_at(7, &game.layout), villager.home);
-        assert_eq!(villager.destination_at(10, &game.layout), game.layout.square);
-        assert_eq!(villager.destination_at(14, &game.layout), game.layout.shop_door);
+        assert_eq!(
+            villager.destination_at(10, &game.layout),
+            game.layout.square
+        );
+        assert_eq!(
+            villager.destination_at(14, &game.layout),
+            game.layout.shop_door
+        );
         assert_eq!(villager.destination_at(22, &game.layout), villager.home);
     }
 
@@ -1098,14 +1170,20 @@ mod tests {
         let mut game = game();
         // Mid-morning, so everyone heads for the square.
         game.calendar.minute = 10 * 60;
-        let start = game.villagers[0].position.distance(game.layout.square.to_world_centre(TILE_SIZE));
+        let start = game.villagers[0]
+            .position
+            .distance(game.layout.square.to_world_centre(TILE_SIZE));
 
         for _ in 0..600 {
             game.update(Vec2::ZERO, false, step());
         }
-        let finish =
-            game.villagers[0].position.distance(game.layout.square.to_world_centre(TILE_SIZE));
-        assert!(finish < start, "the villager did not set off: {start:?} -> {finish:?}");
+        let finish = game.villagers[0]
+            .position
+            .distance(game.layout.square.to_world_centre(TILE_SIZE));
+        assert!(
+            finish < start,
+            "the villager did not set off: {start:?} -> {finish:?}"
+        );
     }
 
     #[test]
@@ -1117,7 +1195,11 @@ mod tests {
         game.sleep();
         assert_eq!(game.calendar.day, day + 1);
         assert_eq!(game.player.energy, MAX_ENERGY);
-        assert_eq!(game.player.tile(), game.layout.farmhouse_door, "and wakes at home");
+        assert_eq!(
+            game.player.tile(),
+            game.layout.farmhouse_door,
+            "and wakes at home"
+        );
     }
 
     #[test]
@@ -1129,7 +1211,10 @@ mod tests {
         game.farm.water(plot);
 
         game.sleep();
-        assert_eq!(game.farm.plot(plot).unwrap().planting.unwrap().growth_days, 1);
+        assert_eq!(
+            game.farm.plot(plot).unwrap().planting.unwrap().growth_days,
+            1
+        );
     }
 
     #[test]
@@ -1162,7 +1247,10 @@ mod tests {
         game.player.inventory.select(2);
 
         match game.use_selected() {
-            ActionOutcome::Gathered { item: ItemId::Wood, count } => assert!(count >= 2),
+            ActionOutcome::Gathered {
+                item: ItemId::Wood,
+                count,
+            } => assert!(count >= 2),
             other => panic!("expected wood, got {other:?}"),
         }
         assert!(game.map.is_walkable(tree), "the tile should now be clear");

@@ -421,8 +421,7 @@ mod tests {
 
     #[test]
     fn letters_are_all_distinct() {
-        let letters: Vec<[u8; ROWS]> =
-            ('A'..='Z').chain('a'..='z').map(glyph).collect();
+        let letters: Vec<[u8; ROWS]> = ('A'..='Z').chain('a'..='z').map(glyph).collect();
         for (i, a) in letters.iter().enumerate() {
             for (j, b) in letters.iter().enumerate().skip(i + 1) {
                 assert_ne!(a, b, "letters at {i} and {j} share a glyph");
