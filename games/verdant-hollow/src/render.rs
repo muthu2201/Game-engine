@@ -26,6 +26,7 @@ use crate::sim::{ActionOutcome, FacingState, Game, MAX_ENERGY, MAX_FRIENDSHIP};
 use crate::world::{tiles, TILE_SIZE};
 use std::collections::BTreeMap;
 use verdant_core_math::{Fx, IVec2, Rect, Rng, Vec2};
+use verdant_input::{actions, Thumbstick, TouchButton, TouchLayout, TouchState};
 use verdant_procgen_art::{
     font, generate_character, generate_crop, generate_item_icon, generate_terrain_tile,
     generate_tree, Canvas, CharacterStyle, Palette, PaletteIndex, Rgba, WALK_FRAMES,
@@ -70,6 +71,8 @@ const Z_STANDING: i32 = 20;
 const Z_HUD_PANEL: i32 = 100;
 /// Draw order for HUD text, above its panel.
 const Z_HUD_TEXT: i32 = 110;
+/// Draw order for the on-screen touch controls, above everything.
+const Z_TOUCH: i32 = 120;
 
 /// A packed sprite's place in the atlas.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -724,6 +727,68 @@ fn ladder_tile(size: u32, base: Rgba) -> (Canvas, Palette) {
     (canvas, palette)
 }
 
+/// Radius of the on-screen thumbstick, in internal pixels.
+///
+/// Generous for a 480-pixel-wide frame: on a phone held in two hands the
+/// stick sits under a thumb that cannot see it, so it has to be findable by
+/// feel rather than by aim.
+pub const STICK_RADIUS: i32 = 30;
+
+/// Edge length of an on-screen action button.
+pub const TOUCH_BUTTON_SIZE: i32 = 44;
+
+/// The on-screen control layout for the game's internal resolution.
+///
+/// The single source of truth for both hit testing and drawing. A layout
+/// function rather than two constants because a button whose artwork and hit
+/// region disagree is a button the player presses and nothing happens.
+#[must_use]
+pub fn touch_layout() -> TouchLayout {
+    let width = i32::try_from(INTERNAL_WIDTH).unwrap_or(480);
+    let height = i32::try_from(INTERNAL_HEIGHT).unwrap_or(270);
+
+    // Bottom-left for the stick, bottom-right for the buttons: the standard
+    // arrangement, and the one a player's hands already expect.
+    let stick_centre = Vec2::from_ints(STICK_RADIUS + 22, height - STICK_RADIUS - 22);
+    let size = TOUCH_BUTTON_SIZE;
+    let margin = 12;
+
+    // The primary action sits lowest and furthest right, under the thumb's
+    // resting position; the rest fan up and left from it.
+    let use_button = Rect::from_ints(width - size - margin, height - size - margin, size, size);
+    let interact_button = Rect::from_ints(
+        width - size * 2 - margin - 8,
+        height - size - margin - 18,
+        size,
+        size,
+    );
+    let sprint_button = Rect::from_ints(
+        width - size - margin - 6,
+        height - size * 2 - margin - 20,
+        size,
+        size,
+    );
+
+    TouchLayout::new(Thumbstick::new(stick_centre, Fx::from_num(STICK_RADIUS)))
+        .with_button(TouchButton::new(actions::USE, use_button))
+        .with_button(TouchButton::new(actions::INTERACT, interact_button))
+        .with_button(TouchButton::new(actions::SPRINT, sprint_button))
+}
+
+/// The label drawn on a touch button.
+///
+/// Short words rather than icons: a generated icon at this size is a smudge,
+/// and a word is unambiguous.
+#[must_use]
+pub fn touch_button_label(action: verdant_input::Action) -> &'static str {
+    match action {
+        a if a == actions::USE => "USE",
+        a if a == actions::INTERACT => "TALK",
+        a if a == actions::SPRINT => "RUN",
+        other => other.name(),
+    }
+}
+
 /// A rectangle in HUD pixel space.
 ///
 /// A named type rather than four loose integers: `fill(x, y, width, height)`
@@ -765,6 +830,18 @@ pub struct Scene {
     /// What HUD colours must be multiplied by to survive the frame's global
     /// tint. Recomputed each frame from the ambient light.
     hud_gain: Color,
+    /// The on-screen control layout, drawn when `show_touch_controls` is set.
+    pub touch: TouchLayout,
+    /// Whether to draw the on-screen controls.
+    ///
+    /// Off by default and switched on by the Android entry point, so a
+    /// desktop player never sees a thumbstick they cannot use, and a phone
+    /// never lacks one.
+    pub show_touch_controls: bool,
+    /// Where the stick's thumb marker should be drawn.
+    touch_thumb: Option<Vec2>,
+    /// Which touch buttons are currently held, for their pressed look.
+    touch_held: Vec<verdant_input::Action>,
 }
 
 impl Default for Scene {
@@ -781,6 +858,10 @@ impl Scene {
             batcher: SpriteBatcher::new(),
             camera: Camera2D::new(INTERNAL_WIDTH, INTERNAL_HEIGHT),
             hud_gain: Color::WHITE,
+            touch: touch_layout(),
+            show_touch_controls: cfg!(target_os = "android"),
+            touch_thumb: None,
+            touch_held: Vec::new(),
         }
     }
 
@@ -1026,6 +1107,145 @@ impl Scene {
         self.draw_energy(game, art, width, height);
         self.draw_hotbar(game, art, width, height);
         self.draw_message(game, art, height);
+        if self.show_touch_controls {
+            self.draw_touch_controls(art);
+        }
+    }
+
+    /// The on-screen thumbstick and action buttons.
+    ///
+    /// Drawn from the same [`TouchLayout`] that resolves presses, so what the
+    /// player sees is exactly what they can hit.
+    fn draw_touch_controls(&mut self, art: &Art) {
+        // These sit over a world that can be any colour, so each control
+        // paints its own dark ground first and its bright parts on top.
+        // Without that the stick reads as a few pale specks in the grass —
+        // which is exactly what an earlier version of this did.
+        let ground = Color::from_srgb_hex(0x14_10_1C).with_alpha(0.38);
+        let ring = Color::from_srgb_hex(0xF4_EC_DC).with_alpha(0.72);
+        let thumb = Color::from_srgb_hex(0xFF_FF_FF).with_alpha(0.85);
+        let face = Color::from_srgb_hex(0x14_10_1C).with_alpha(0.46);
+        let edge = Color::from_srgb_hex(0xF4_EC_DC).with_alpha(0.55);
+        let held_face = Color::from_srgb_hex(0xF0_D8_A0).with_alpha(0.72);
+        let label = Color::from_srgb_hex(0xF8_F0_DC);
+
+        let centre = self.touch.stick.centre;
+        let radius = self.touch.stick.radius.to_int();
+
+        // The stick's ground, then its rim.
+        self.fill_disc(art, centre, radius, ground, Z_TOUCH);
+        self.stroke_circle(art, centre, radius, ring, Z_TOUCH);
+
+        // The thumb, at the finger when one is down and at rest otherwise,
+        // kept inside the rim so it cannot wander off across the screen when
+        // a thumb drags well past the edge.
+        let thumb_at = self.touch_thumb.unwrap_or(centre);
+        let offset = thumb_at - centre;
+        let clamped = if offset.length() > self.touch.stick.radius {
+            centre + offset.clamp_length(self.touch.stick.radius)
+        } else {
+            thumb_at
+        };
+        self.fill_disc(art, clamped, (radius / 3).max(5), thumb, Z_TOUCH);
+
+        // The action buttons.
+        for index in 0..self.touch.buttons.len() {
+            let button = self.touch.buttons[index];
+            let held = self.touch_held.contains(&button.action);
+            let bounds = Panel::new(
+                button.bounds.min.x.to_int(),
+                button.bounds.min.y.to_int(),
+                button.bounds.size.x.to_int(),
+                button.bounds.size.y.to_int(),
+            );
+
+            // A pressed button lights up: on a touchscreen there is no travel
+            // to feel, so the only confirmation a player gets is visual.
+            self.fill(art, bounds, if held { held_face } else { face }, Z_TOUCH);
+            self.stroke_rect(art, bounds, edge, Z_TOUCH);
+
+            let text = touch_button_label(button.action);
+            let text_width = i32::try_from(font::text_width(text)).unwrap_or(0);
+            let glyph_height = i32::try_from(font::GLYPH_HEIGHT).unwrap_or(7);
+            let colour = if held {
+                Color::from_srgb_hex(0x2A_20_18)
+            } else {
+                label
+            };
+            self.shadowed_text(
+                art,
+                bounds.x + (bounds.width - text_width) / 2,
+                bounds.y + (bounds.height - glyph_height) / 2,
+                text,
+                colour,
+                Z_TOUCH,
+            );
+        }
+    }
+
+    /// Fills a disc in screen space, as one horizontal span per row.
+    ///
+    /// Spans rather than a circle of blocks: a ring of separate squares
+    /// leaves gaps that read as noise against a textured background, and a
+    /// solid shape is what makes a control look like a control.
+    fn fill_disc(&mut self, art: &Art, centre: Vec2, radius: i32, color: Color, z: i32) {
+        if radius <= 0 {
+            return;
+        }
+        let (cx, cy) = (centre.x.to_int(), centre.y.to_int());
+        for row in -radius..=radius {
+            // The engine's fixed-point square root rather than a float one,
+            // so the shape is identical on every machine.
+            let half = Fx::from_num((radius * radius - row * row).max(0))
+                .sqrt()
+                .to_int();
+            if half <= 0 {
+                continue;
+            }
+            self.fill(art, Panel::new(cx - half, cy + row, half * 2, 1), color, z);
+        }
+    }
+
+    /// Draws a one-pixel circular outline in screen space.
+    fn stroke_circle(&mut self, art: &Art, centre: Vec2, radius: i32, color: Color, z: i32) {
+        if radius <= 0 {
+            return;
+        }
+        // Enough segments that consecutive marks touch: roughly the
+        // circumference in pixels, so each step advances about one pixel and
+        // the outline has no gaps for the background to show through.
+        let scale = Fx::from_num(radius);
+        let segments = (radius * 7).max(24);
+        for step in 0..segments {
+            let angle = Fx::TAU * Fx::from_ratio(step, segments);
+            let x = centre.x + angle.cos() * scale;
+            let y = centre.y + angle.sin() * scale;
+            self.fill(art, Panel::new(x.to_int(), y.to_int(), 2, 2), color, z);
+        }
+    }
+
+    /// Draws a one-pixel rectangular outline in screen space.
+    fn stroke_rect(&mut self, art: &Art, panel: Panel, color: Color, z: i32) {
+        let Panel {
+            x,
+            y,
+            width,
+            height,
+        } = panel;
+        self.fill(art, Panel::new(x, y, width, 1), color, z);
+        self.fill(art, Panel::new(x, y + height - 1, width, 1), color, z);
+        self.fill(art, Panel::new(x, y, 1, height), color, z);
+        self.fill(art, Panel::new(x + width - 1, y, 1, height), color, z);
+    }
+
+    /// Records where the player's fingers are, for the next frame's controls.
+    ///
+    /// Presentation only: the simulation already has the resolved direction,
+    /// and this is what makes the drawn stick follow the thumb.
+    pub fn observe_touch(&mut self, touch: &TouchState) {
+        self.touch_thumb = touch.stick_position();
+        self.touch_held.clear();
+        self.touch_held.extend_from_slice(touch.pressed());
     }
 
     /// The date, time and weather panel.
@@ -2093,6 +2313,267 @@ mod tests {
             assert!(
                 (tint[0] - 1.0).abs() < 1e-6,
                 "ground should be drawn untinted: {tint:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_touch_control_is_on_screen() {
+        // A control drawn off the edge is a control that cannot be pressed.
+        let layout = touch_layout();
+        let width = Fx::from_num(i32::try_from(INTERNAL_WIDTH).expect("small"));
+        let height = Fx::from_num(i32::try_from(INTERNAL_HEIGHT).expect("small"));
+
+        let stick = layout.stick;
+        assert!(stick.centre.x - stick.radius >= Fx::ZERO);
+        assert!(stick.centre.y + stick.radius <= height);
+
+        for button in &layout.buttons {
+            assert!(
+                button.bounds.min.x >= Fx::ZERO,
+                "{:?} runs off the left",
+                button.action
+            );
+            assert!(
+                button.bounds.min.y >= Fx::ZERO,
+                "{:?} runs off the top",
+                button.action
+            );
+            assert!(
+                button.bounds.max().x <= width,
+                "{:?} runs off the right",
+                button.action
+            );
+            assert!(
+                button.bounds.max().y <= height,
+                "{:?} runs off the bottom",
+                button.action
+            );
+        }
+    }
+
+    #[test]
+    fn touch_buttons_do_not_overlap_each_other() {
+        // Overlapping buttons mean one is unreachable, since the later one
+        // always wins the press.
+        let layout = touch_layout();
+        for (index, a) in layout.buttons.iter().enumerate() {
+            for b in layout.buttons.iter().skip(index + 1) {
+                assert!(
+                    !a.bounds.intersects(b.bounds),
+                    "{:?} overlaps {:?}",
+                    a.action,
+                    b.action
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_buttons_do_not_overlap_the_stick() {
+        // A press meant for the stick that lands on a button, or the reverse,
+        // is the most frustrating failure a touch layout can have.
+        let layout = touch_layout();
+        for button in &layout.buttons {
+            let closest = button.bounds.clamp_point(layout.stick.centre);
+            let distance = closest.distance(layout.stick.centre);
+            assert!(
+                distance > layout.stick.radius + layout.stick.grab_margin,
+                "{:?} is only {distance} from the stick",
+                button.action
+            );
+        }
+    }
+
+    #[test]
+    fn pressing_where_a_button_is_drawn_triggers_it() {
+        // The property the shared layout exists to guarantee.
+        let layout = touch_layout();
+        let mut state = TouchState::new();
+        for (index, button) in layout.buttons.iter().enumerate() {
+            state.clear();
+            state.handle(
+                verdant_input::TouchEvent {
+                    id: verdant_input::TouchId(1),
+                    position: button.bounds.centre(),
+                    phase: verdant_input::TouchPhase::Started,
+                },
+                &layout,
+            );
+            assert!(
+                state.is_pressed(button.action),
+                "button {index} ({:?}) did not respond at its own centre",
+                button.action
+            );
+        }
+    }
+
+    #[test]
+    fn the_touch_controls_are_hidden_by_default_on_desktop() {
+        // A desktop player should never see a thumbstick they cannot use.
+        let scene = Scene::new();
+        assert_eq!(scene.show_touch_controls, cfg!(target_os = "android"));
+    }
+
+    #[test]
+    fn the_touch_controls_draw_above_the_hud() {
+        let (game, art) = fixture();
+        let mut scene = Scene::new();
+        scene.show_touch_controls = true;
+        scene.snap_to(&game);
+        scene.build(&game, &art);
+
+        let controls = scene
+            .sprites()
+            .iter()
+            .filter(|sprite| sprite.z >= Z_TOUCH)
+            .count();
+        assert!(controls > 0, "the controls should have been drawn");
+    }
+
+    #[test]
+    fn hiding_the_touch_controls_draws_nothing_extra() {
+        let (game, art) = fixture();
+        let mut scene = Scene::new();
+        scene.show_touch_controls = false;
+        scene.snap_to(&game);
+        scene.build(&game, &art);
+        assert_eq!(scene.sprites().iter().filter(|s| s.z >= Z_TOUCH).count(), 0);
+    }
+
+    #[test]
+    fn the_drawn_thumb_follows_the_finger() {
+        let (game, art) = fixture();
+        let layout = touch_layout();
+        let mut touch = TouchState::new();
+        touch.handle(
+            verdant_input::TouchEvent {
+                id: verdant_input::TouchId(1),
+                position: layout.stick.centre + Vec2::from_ints(10, 0),
+                phase: verdant_input::TouchPhase::Started,
+            },
+            &layout,
+        );
+
+        let mut scene = Scene::new();
+        scene.show_touch_controls = true;
+        scene.snap_to(&game);
+        scene.observe_touch(&touch);
+        scene.build(&game, &art);
+        let with_finger: Vec<Vec2> = scene
+            .sprites()
+            .iter()
+            .filter(|s| s.z >= Z_TOUCH)
+            .map(|s| s.position)
+            .collect();
+
+        touch.clear();
+        scene.observe_touch(&touch);
+        scene.build(&game, &art);
+        let at_rest: Vec<Vec2> = scene
+            .sprites()
+            .iter()
+            .filter(|s| s.z >= Z_TOUCH)
+            .map(|s| s.position)
+            .collect();
+
+        assert_ne!(with_finger, at_rest, "the thumb marker should have moved");
+    }
+
+    #[test]
+    fn the_drawn_thumb_stays_inside_its_ring() {
+        // A thumb dragged across the screen must not drag the marker with it.
+        let (game, art) = fixture();
+        let layout = touch_layout();
+        let mut touch = TouchState::new();
+        touch.handle(
+            verdant_input::TouchEvent {
+                id: verdant_input::TouchId(1),
+                position: layout.stick.centre,
+                phase: verdant_input::TouchPhase::Started,
+            },
+            &layout,
+        );
+        touch.handle(
+            verdant_input::TouchEvent {
+                id: verdant_input::TouchId(1),
+                position: Vec2::from_ints(2000, 2000),
+                phase: verdant_input::TouchPhase::Moved,
+            },
+            &layout,
+        );
+
+        let mut scene = Scene::new();
+        scene.show_touch_controls = true;
+        scene.snap_to(&game);
+        scene.observe_touch(&touch);
+        scene.build(&game, &art);
+
+        let visible = Rect::from_ints(
+            -8,
+            -8,
+            i32::try_from(INTERNAL_WIDTH).expect("small") + 16,
+            i32::try_from(INTERNAL_HEIGHT).expect("small") + 16,
+        );
+        for sprite in scene.sprites().iter().filter(|s| s.z >= Z_TOUCH) {
+            let screen = scene.camera.world_to_screen(sprite.position);
+            assert!(
+                visible.contains_point(screen),
+                "a control was drawn at {screen:?}, off screen"
+            );
+        }
+    }
+
+    #[test]
+    fn a_held_button_looks_different_from_a_released_one() {
+        // On a touchscreen there is no travel to feel; the only confirmation
+        // a player gets is visual.
+        let (game, art) = fixture();
+        let layout = touch_layout();
+        let mut scene = Scene::new();
+        scene.show_touch_controls = true;
+        scene.snap_to(&game);
+
+        scene.build(&game, &art);
+        let released: Vec<[f32; 4]> = scene
+            .sprites()
+            .iter()
+            .filter(|s| s.z >= Z_TOUCH)
+            .map(|s| s.color.to_array())
+            .collect();
+
+        let mut touch = TouchState::new();
+        touch.handle(
+            verdant_input::TouchEvent {
+                id: verdant_input::TouchId(1),
+                position: layout.buttons[0].bounds.centre(),
+                phase: verdant_input::TouchPhase::Started,
+            },
+            &layout,
+        );
+        scene.observe_touch(&touch);
+        scene.build(&game, &art);
+        let held: Vec<[f32; 4]> = scene
+            .sprites()
+            .iter()
+            .filter(|s| s.z >= Z_TOUCH)
+            .map(|s| s.color.to_array())
+            .collect();
+
+        assert_ne!(released, held, "a pressed button should light up");
+    }
+
+    #[test]
+    fn every_touch_button_has_a_readable_label() {
+        let layout = touch_layout();
+        for button in &layout.buttons {
+            let label = touch_button_label(button.action);
+            assert!(!label.is_empty());
+            let width = i32::try_from(font::text_width(label)).expect("small");
+            assert!(
+                width <= button.bounds.size.x.to_int(),
+                "{label:?} is {width}px wide but its button is {}px",
+                button.bounds.size.x.to_int()
             );
         }
     }

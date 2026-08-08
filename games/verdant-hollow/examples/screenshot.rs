@@ -51,6 +51,10 @@ fn main() {
     let mut scene = Scene::new();
     scene.snap_to(&game);
 
+    // Draw the phone layout too, so the touch controls get the same visual
+    // review as everything else rather than being verified only by tests.
+    scene.show_touch_controls = true;
+
     for (name, minute) in [
         ("morning", 8 * 60),
         ("afternoon", 14 * 60),
