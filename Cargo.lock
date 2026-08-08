@@ -108,6 +108,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "verdant-physics-2d"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "verdant-core-ecs",
+ "verdant-core-math",
+]
+
+[[package]]
 name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"

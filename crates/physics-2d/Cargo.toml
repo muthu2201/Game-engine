@@ -1,0 +1,17 @@
+[package]
+name = "verdant-physics-2d"
+description = "Deterministic swept-AABB collision, spatial hashing and tile collision for the Verdant engine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+verdant-core-math = { workspace = true }
+verdant-core-ecs = { workspace = true }
+serde = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core-math", "crates/core-ecs"]
+members = ["crates/core-math", "crates/core-ecs", "crates/physics-2d"]
 
 [workspace.package]
 version = "0.1.0"
