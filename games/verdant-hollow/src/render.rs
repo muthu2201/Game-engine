@@ -32,8 +32,8 @@ use verdant_procgen_art::{
     generate_tree, Canvas, CharacterStyle, Palette, PaletteIndex, Rgba, WALK_FRAMES,
 };
 use verdant_render_2d::{
-    Camera2D, Color, Compositor, DrawSprite, Light, LightRenderer, LightSettings, SpriteBatcher,
-    TextureArray,
+    Camera2D, Color, Compositor, DrawSprite, EmitShape, Emitter, Light, LightRenderer,
+    LightSettings, ParticleSystem, Range as ParticleRange, SpriteBatcher, TextureArray,
 };
 use verdant_tilemap::TileId;
 
@@ -76,6 +76,14 @@ const Z_HUD_PANEL: i32 = 100;
 const Z_HUD_TEXT: i32 = 110;
 /// Draw order for the on-screen touch controls, above everything.
 const Z_TOUCH: i32 = 120;
+/// Draw order for weather, over the world but under the interface.
+const Z_WEATHER: i32 = 60;
+
+/// How many weather particles may exist at once.
+///
+/// Sized for a full screen of heavy rain at the internal resolution. The pool
+/// never grows, so a storm thins out rather than stalling the frame.
+pub const WEATHER_PARTICLES: usize = 900;
 
 /// A packed sprite's place in the atlas.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -837,6 +845,13 @@ pub struct Scene {
     hud: SpriteBatcher,
     /// Lights gathered from the world this frame.
     lights: Vec<Light>,
+    /// Rain and snow.
+    ///
+    /// Simulated in fixed point from the world seed, so the weather in a
+    /// replay is the weather that was recorded.
+    weather: ParticleSystem,
+    /// Which weather the emitter is currently configured for.
+    weather_kind: Option<Weather>,
     /// The camera, kept across frames so its smoothing has history.
     pub camera: Camera2D,
     /// The on-screen control layout, drawn when `show_touch_controls` is set.
@@ -867,6 +882,8 @@ impl Scene {
             batcher: SpriteBatcher::new(),
             hud: SpriteBatcher::new(),
             lights: Vec::new(),
+            weather: ParticleSystem::new(WEATHER_PARTICLES, 20_260_808),
+            weather_kind: None,
             camera: Camera2D::new(INTERNAL_WIDTH, INTERNAL_HEIGHT),
             touch: touch_layout(),
             show_touch_controls: cfg!(target_os = "android"),
@@ -898,6 +915,46 @@ impl Scene {
         self.camera.clamp_to(game.map.bounds());
     }
 
+    /// Advances the weather by one simulation step.
+    ///
+    /// Driven from the fixed step rather than frame time, because particles
+    /// here are part of the deterministic simulation: feeding it real elapsed
+    /// seconds would make a replay's rain differ from the recording's.
+    pub fn update_weather(&mut self, game: &Game, art: &Art, dt: Fx) {
+        self.configure_weather(game, art);
+        self.weather.update(dt);
+    }
+
+    /// Points the weather emitter at the camera and sets it for the sky.
+    fn configure_weather(&mut self, game: &Game, art: &Art) {
+        let weather = game.calendar.weather;
+        let visible = self.camera.visible_bounds();
+
+        if self.weather_kind != Some(weather) {
+            self.weather_kind = Some(weather);
+            self.weather.clear();
+            if self.weather.emitter_count() == 0 {
+                self.weather.add_emitter(Emitter::default());
+            }
+            if let Some(emitter) = self.weather.emitter_mut(0) {
+                *emitter = weather_emitter(weather, art);
+            }
+        }
+
+        // The emitter follows the camera and spans a band above the view, so
+        // particles fall into frame rather than popping into existence in the
+        // middle of it.
+        if let Some(emitter) = self.weather.emitter_mut(0) {
+            emitter.position = Vec2::new(visible.centre().x, visible.min.y - Fx::from_num(24));
+            emitter.shape = EmitShape::Rect {
+                half_extents: Vec2::new(
+                    visible.size.x * Fx::HALF + Fx::from_num(48),
+                    Fx::from_num(24),
+                ),
+            };
+        }
+    }
+
     /// Builds this frame and returns the sorted sprites.
     pub fn build(&mut self, game: &Game, art: &Art) -> &mut SpriteBatcher {
         self.batcher.clear();
@@ -906,6 +963,11 @@ impl Scene {
         self.draw_world(game, art);
         self.draw_farm(game, art);
         self.draw_characters(game, art);
+        // Culled to the view: the emitter spans a band wider than the screen
+        // so particles fall in from outside, and drawing the ones still out
+        // there would be pure waste.
+        let visible = self.camera.visible_bounds().expand(Fx::from_num(32));
+        self.weather.draw_visible(&mut self.batcher, visible);
         self.draw_hud(game, art);
         &mut self.batcher
     }
@@ -920,6 +982,12 @@ impl Scene {
     #[must_use]
     pub fn hud_sprites(&self) -> &[DrawSprite] {
         self.hud.sprites()
+    }
+
+    /// The weather particles, for inspection and testing.
+    #[must_use]
+    pub fn weather(&self) -> &ParticleSystem {
+        &self.weather
     }
 
     /// The lights gathered by the last call to [`Scene::build`].
@@ -1633,6 +1701,74 @@ fn describe_farm(action: crate::farm::FarmAction) -> Option<String> {
         } => Some(format!("Harvested {} x{}", item(produce).name, count)),
         FarmAction::Cleared => Some("Cleared the plot.".to_owned()),
     }
+}
+
+/// The emitter for a kind of weather.
+///
+/// Clear skies get a disabled emitter rather than no emitter, so the switch
+/// between conditions is one assignment and never a branch at draw time.
+fn weather_emitter(weather: Weather, art: &Art) -> Emitter {
+    let page = art.atlas().page_size();
+    let white = art.white();
+    let sprite = (white.layer, white.uv(page), Z_WEATHER);
+
+    let mut emitter = Emitter::default();
+    emitter.layer = sprite.0;
+    emitter.uv_rect = sprite.1;
+    emitter.z = sprite.2;
+
+    match weather {
+        // Cloudy dims the sky but drops nothing, which the ambient light
+        // already handles.
+        Weather::Clear | Weather::Cloudy => {
+            emitter.enabled = false;
+        }
+        Weather::Rain | Weather::Storm => {
+            let heavy = weather == Weather::Storm;
+            emitter.rate = if heavy {
+                Fx::from_num(420)
+            } else {
+                Fx::from_num(220)
+            };
+            emitter.lifetime = ParticleRange::new(Fx::from_ratio(9, 10), Fx::from_ratio(14, 10));
+            // Falling steeply and slightly sideways: vertical rain reads as a
+            // screen effect, a slant reads as weather.
+            emitter.direction = Fx::PI / Fx::from_num(2) - Fx::from_ratio(1, 5);
+            emitter.spread = Fx::from_ratio(1, 25);
+            emitter.speed = ParticleRange::new(Fx::from_num(260), Fx::from_num(340));
+            emitter.gravity = Vec2::new(Fx::ZERO, Fx::from_num(120));
+            // Long and thin, which is what makes a drop read as motion
+            // rather than as a speck of dust.
+            emitter.start_size = ParticleRange::new(Fx::ONE, Fx::from_ratio(3, 2));
+            emitter.end_scale = Fx::ONE;
+            emitter.proportions = Vec2::new(Fx::from_num(2), Fx::from_num(7));
+            // Bright and barely fading. Rain does not dim as it falls, and the
+            // weather's own ambient already darkens the whole scene by a
+            // quarter — a drop tuned to look right in isolation disappears
+            // once that lands on top of it.
+            let tint = 0xE4_F0_FF;
+            emitter.start_color = Color::from_srgb_hex(tint).with_alpha(0.85);
+            emitter.end_color = Color::from_srgb_hex(tint).with_alpha(0.7);
+        }
+        Weather::Snow => {
+            emitter.rate = Fx::from_num(150);
+            emitter.lifetime = ParticleRange::new(Fx::from_num(3), Fx::from_num(5));
+            emitter.direction = Fx::PI / Fx::from_num(2);
+            // A wide spread and a slow fall: snow drifts where rain falls.
+            emitter.spread = Fx::from_ratio(2, 5);
+            emitter.speed = ParticleRange::new(Fx::from_num(18), Fx::from_num(34));
+            emitter.gravity = Vec2::new(Fx::ZERO, Fx::from_num(6));
+            emitter.drag = Fx::from_ratio(1, 2);
+            // Flakes are round, so they stay square. Bigger and more opaque
+            // than looks right in isolation, because snow falls on the short
+            // dim days when the ambient light is already taking a third of it.
+            emitter.start_size = ParticleRange::new(Fx::from_num(2), Fx::from_num(4));
+            emitter.end_scale = Fx::ONE;
+            emitter.start_color = Color::from_srgb_hex(0xFF_FF_FF).with_alpha(0.95);
+            emitter.end_color = Color::from_srgb_hex(0xFF_FF_FF).with_alpha(0.8);
+        }
+    }
+    emitter
 }
 
 /// The clear colour for the world pass.
@@ -2732,6 +2868,195 @@ mod tests {
                 button.bounds.size.x.to_int()
             );
         }
+    }
+
+    /// Runs the weather for a second of simulated time.
+    fn run_weather(game: &Game, art: &Art, scene: &mut Scene) {
+        let step = Fx::from_ratio(1, 60);
+        for _ in 0..60 {
+            scene.update_weather(game, art, step);
+        }
+    }
+
+    #[test]
+    fn clear_skies_drop_nothing() {
+        let (mut game, art) = fixture();
+        game.calendar.weather = Weather::Clear;
+        let mut scene = Scene::new();
+        scene.snap_to(&game);
+        run_weather(&game, &art, &mut scene);
+        assert!(scene.weather().is_empty(), "clear skies should be clear");
+    }
+
+    #[test]
+    fn rain_falls() {
+        let (mut game, art) = fixture();
+        game.calendar.weather = Weather::Rain;
+        let mut scene = Scene::new();
+        scene.snap_to(&game);
+        run_weather(&game, &art, &mut scene);
+
+        assert!(!scene.weather().is_empty(), "it should be raining");
+        for particle in scene.weather().particles() {
+            assert!(
+                particle.velocity.y > Fx::ZERO,
+                "rain should fall, not rise: {:?}",
+                particle.velocity
+            );
+        }
+    }
+
+    #[test]
+    fn a_storm_is_heavier_than_rain() {
+        let (mut game, art) = fixture();
+        let mut scene = Scene::new();
+        scene.snap_to(&game);
+
+        game.calendar.weather = Weather::Rain;
+        run_weather(&game, &art, &mut scene);
+        let rain = scene.weather().len();
+
+        game.calendar.weather = Weather::Storm;
+        run_weather(&game, &art, &mut scene);
+        let storm = scene.weather().len();
+
+        assert!(storm > rain, "a storm ({storm}) should beat rain ({rain})");
+    }
+
+    #[test]
+    fn snow_drifts_more_slowly_than_rain_falls() {
+        let (mut game, art) = fixture();
+        let mut scene = Scene::new();
+        scene.snap_to(&game);
+
+        game.calendar.weather = Weather::Rain;
+        run_weather(&game, &art, &mut scene);
+        let rain_speed = average_fall(&scene);
+
+        game.calendar.weather = Weather::Snow;
+        run_weather(&game, &art, &mut scene);
+        let snow_speed = average_fall(&scene);
+
+        assert!(
+            snow_speed < rain_speed,
+            "snow ({snow_speed}) should drift, rain ({rain_speed}) should fall"
+        );
+    }
+
+    /// The mean downward speed of the weather, for comparing conditions.
+    fn average_fall(scene: &Scene) -> Fx {
+        let particles = scene.weather().particles();
+        if particles.is_empty() {
+            return Fx::ZERO;
+        }
+        let total: Fx = particles
+            .iter()
+            .fold(Fx::ZERO, |sum, particle| sum + particle.velocity.y);
+        total / Fx::from_num(i32::try_from(particles.len()).unwrap_or(1))
+    }
+
+    #[test]
+    fn changing_the_weather_clears_the_old_one() {
+        // Otherwise raindrops keep falling through a sunny afternoon.
+        let (mut game, art) = fixture();
+        let mut scene = Scene::new();
+        scene.snap_to(&game);
+
+        game.calendar.weather = Weather::Rain;
+        run_weather(&game, &art, &mut scene);
+        assert!(!scene.weather().is_empty());
+
+        game.calendar.weather = Weather::Clear;
+        scene.update_weather(&game, &art, Fx::from_ratio(1, 60));
+        assert!(scene.weather().is_empty(), "the rain should have stopped");
+    }
+
+    #[test]
+    fn weather_follows_the_camera() {
+        // A fixed emitter would leave the player walking out from under the
+        // rain.
+        let (mut game, art) = fixture();
+        game.calendar.weather = Weather::Rain;
+        let mut scene = Scene::new();
+
+        game.player.position = Vec2::from_ints(100, 100);
+        scene.snap_to(&game);
+        run_weather(&game, &art, &mut scene);
+
+        game.player.position = Vec2::from_ints(600, 500);
+        scene.snap_to(&game);
+        scene.update_weather(&game, &art, Fx::from_ratio(1, 60));
+
+        let visible = scene.camera.visible_bounds().expand(Fx::from_num(96));
+        let emitter_x = scene
+            .weather()
+            .particles()
+            .iter()
+            .map(|particle| particle.position.x)
+            .fold(Fx::ZERO, |a, b| a.max(b));
+        assert!(
+            emitter_x > visible.min.x,
+            "the weather should have followed the camera"
+        );
+    }
+
+    #[test]
+    fn weather_is_deterministic() {
+        // The whole reason particles are simulated in fixed point: a replay's
+        // rain has to match the recording's.
+        let render = || {
+            let (mut game, art) = fixture();
+            game.calendar.weather = Weather::Storm;
+            let mut scene = Scene::new();
+            scene.snap_to(&game);
+            run_weather(&game, &art, &mut scene);
+            scene
+                .weather()
+                .particles()
+                .iter()
+                .map(|particle| (particle.position, particle.velocity))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(render(), render());
+    }
+
+    #[test]
+    fn weather_draws_under_the_interface() {
+        let (mut game, art) = fixture();
+        game.calendar.weather = Weather::Rain;
+        let mut scene = Scene::new();
+        scene.snap_to(&game);
+        run_weather(&game, &art, &mut scene);
+        scene.build(&game, &art);
+
+        let weather_sprites = scene
+            .sprites()
+            .iter()
+            .filter(|sprite| sprite.z == Z_WEATHER)
+            .count();
+        assert!(weather_sprites > 0, "the rain should have been drawn");
+        // The HUD is a separate batch drawn after the lighting composite, so
+        // weather cannot cover it however high its draw order goes.
+        assert!(
+            scene
+                .hud_sprites()
+                .iter()
+                .all(|sprite| sprite.z >= Z_HUD_PANEL),
+            "the HUD batch should hold only interface sprites"
+        );
+    }
+
+    #[test]
+    fn the_weather_pool_never_grows() {
+        // A storm should thin out rather than stall the frame.
+        let (mut game, art) = fixture();
+        game.calendar.weather = Weather::Storm;
+        let mut scene = Scene::new();
+        scene.snap_to(&game);
+        for _ in 0..600 {
+            scene.update_weather(&game, &art, Fx::from_ratio(1, 60));
+        }
+        assert!(scene.weather().len() <= WEATHER_PARTICLES);
     }
 
     #[test]

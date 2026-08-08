@@ -55,13 +55,24 @@ fn main() {
     // review as everything else rather than being verified only by tests.
     scene.show_touch_controls = true;
 
-    for (name, minute) in [
-        ("morning", 8 * 60),
-        ("afternoon", 14 * 60),
-        ("dusk", 19 * 60),
-        ("night", 23 * 60),
+    for (name, minute, weather) in [
+        ("morning", 8 * 60, verdant_hollow::calendar::Weather::Clear),
+        (
+            "afternoon",
+            14 * 60,
+            verdant_hollow::calendar::Weather::Rain,
+        ),
+        ("dusk", 19 * 60, verdant_hollow::calendar::Weather::Snow),
+        ("night", 23 * 60, verdant_hollow::calendar::Weather::Clear),
     ] {
         game.calendar.minute = minute;
+        game.calendar.weather = weather;
+
+        // Let the weather build up before the shot, so rain is a curtain
+        // rather than the two drops that exist on its first step.
+        for _ in 0..120 {
+            scene.update_weather(&game, &art, verdant_core_math::Fx::from_ratio(1, 60));
+        }
         renderer.draw(
             &mut scene,
             &game,

@@ -198,6 +198,9 @@ impl App {
         for _ in 0..plan.steps {
             self.input.update(&self.map, &self.devices);
             self.simulate(step);
+            // Weather advances on the fixed step with everything else, so a
+            // replay's rain matches the recording's.
+            self.scene.update_weather(&self.game, &self.art, step);
         }
 
         self.update_music();
