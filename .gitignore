@@ -1,0 +1,6 @@
+/target
+**/*.rs.bk
+*.pdb
+/games/verdant-hollow/saves
+/artifacts
+.DS_Store

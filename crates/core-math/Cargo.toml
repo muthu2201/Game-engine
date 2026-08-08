@@ -1,0 +1,19 @@
+[package]
+name = "verdant-core-math"
+description = "Deterministic fixed-point math, vectors, geometry, RNG and noise for the Verdant engine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde = { workspace = true, optional = true }
+
+[features]
+default = ["serde"]
+serde = ["dep:serde"]
+
+[lints]
+workspace = true

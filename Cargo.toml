@@ -1,0 +1,82 @@
+[workspace]
+resolver = "2"
+members = ["crates/core-math"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/muthu2201/Game-engine"
+authors = ["Verdant Engine contributors"]
+
+[workspace.dependencies]
+# Internal crates. Path + version so the workspace can be published as a set.
+verdant-core-math = { path = "crates/core-math", version = "0.1.0" }
+verdant-core-ecs = { path = "crates/core-ecs", version = "0.1.0" }
+verdant-physics-2d = { path = "crates/physics-2d", version = "0.1.0" }
+verdant-tilemap = { path = "crates/tilemap", version = "0.1.0" }
+verdant-input = { path = "crates/input", version = "0.1.0" }
+verdant-save = { path = "crates/save", version = "0.1.0" }
+verdant-assets = { path = "crates/assets", version = "0.1.0" }
+verdant-audio = { path = "crates/audio", version = "0.1.0" }
+verdant-render-2d = { path = "crates/render-2d", version = "0.1.0" }
+verdant-procgen-art = { path = "crates/procgen-art", version = "0.1.0" }
+verdant-editor-core = { path = "crates/editor-core", version = "0.1.0" }
+verdant-mcp-server = { path = "crates/mcp-server", version = "0.1.0" }
+verdant-runtime = { path = "crates/runtime", version = "0.1.0" }
+verdant = { path = "crates/verdant", version = "0.1.0" }
+
+# Third-party. Versions verified against crates.io at time of writing; the
+# graphics row (wgpu/winit/bytemuck/pollster) must be upgraded as a coupled set.
+wgpu = { version = "30.0", default-features = false, features = [
+    "wgsl",
+    "vulkan",
+    "metal",
+    "dx12",
+    "webgpu",
+] }
+winit = "0.30.13"
+bytemuck = { version = "1.25", features = ["derive"] }
+pollster = "1.0"
+png = "0.18"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+env_logger = "0.11"
+cpal = "0.16"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+# The simulation crates are the determinism boundary: an unexpected panic or an
+# implicit float conversion there is a correctness bug, not a style nit.
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+float_cmp = "warn"
+cast_possible_truncation = "warn"
+cast_precision_loss = "warn"
+missing_panics_doc = "warn"
+missing_errors_doc = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+# Development builds keep the simulation fast enough to be playable while still
+# carrying debug assertions; without this the fixed-step loop spirals on debug.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# `cargo test --release`-grade speed for the determinism suites, which run
+# thousands of simulation ticks.
+[profile.test]
+opt-level = 2
