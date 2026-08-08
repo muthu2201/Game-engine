@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A sprouting seedling, drawn as vector paths so the icon needs no bitmap
+     and scales to every launcher density. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Stem -->
+    <path
+        android:fillColor="#2F6B38"
+        android:pathData="M52,78 L56,78 L56,44 L52,44 Z" />
+
+    <!-- Left leaf -->
+    <path
+        android:fillColor="#7BC24E"
+        android:pathData="M52,58 C40,58 32,50 30,40 C42,38 52,46 52,58 Z" />
+
+    <!-- Right leaf -->
+    <path
+        android:fillColor="#5EA83C"
+        android:pathData="M56,52 C56,40 66,32 78,34 C76,44 68,52 56,52 Z" />
+
+    <!-- Soil -->
+    <path
+        android:fillColor="#6B4E33"
+        android:pathData="M34,78 L74,78 L70,86 L38,86 Z" />
+</vector>

@@ -1,0 +1,217 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same branch: only the newest push matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail the build on any warning. The lint set is defined in the workspace
+  # manifest, so this makes those lints binding rather than advisory.
+  RUSTFLAGS: "-D warnings"
+  RUST_BACKTRACE: 1
+
+jobs:
+  format:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: rustup component add rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: rustup component add clippy
+      - name: Install audio development headers
+        # verdant-audio's default `device` feature reaches the speakers
+        # through cpal, which needs ALSA's headers on Linux.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --all-features
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install audio development headers
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev
+      - uses: Swatinem/rust-cache@v2
+      - name: Run the test suite
+        run: cargo test --workspace --all-features
+
+  # The renderer needs a Vulkan device. GitHub's hosted runners have no GPU, so
+  # Mesa's lavapipe software driver stands in — it is a conformant Vulkan
+  # implementation, which is what makes the golden-image tests meaningful here.
+  render:
+    name: headless renderer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the software Vulkan driver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools libasound2-dev
+      - uses: Swatinem/rust-cache@v2
+      - name: Confirm the software adapter is visible
+        # A missing ICD makes the renderer tests skip rather than fail, so
+        # assert the driver is actually loadable before relying on them.
+        run: vulkaninfo --summary | head -30
+      - name: Run renderer tests against lavapipe
+        env:
+          # Pin adapter selection so a run never silently falls back to a
+          # different device and invalidates the golden images.
+          WGPU_BACKEND: vulkan
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
+          VERDANT_HEADLESS: "1"
+        run: cargo test --workspace --all-features -- --include-ignored
+      - name: Render the game to PNGs
+        # Tests assert that a frame has the right structure; only an image
+        # shows whether it looks like anything. Keeping these as artifacts
+        # makes a visual regression reviewable in the pull request rather
+        # than only on someone's desktop.
+        env:
+          WGPU_BACKEND: vulkan
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
+        run: cargo run --release -p verdant-hollow --example screenshot -- target/screenshots
+      - name: Upload the screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: target/screenshots/
+          if-no-files-found: error
+      - name: Upload golden-image diffs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-image-diffs
+          path: target/golden-diffs/
+          if-no-files-found: ignore
+
+  # Determinism is the property that is nearly impossible to retrofit, so it
+  # gets its own job: the same seeded simulation must produce the same state
+  # hash on every operating system in the matrix.
+  determinism:
+    name: cross-platform determinism (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install audio development headers
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev
+      - uses: Swatinem/rust-cache@v2
+      - name: Record the simulation fingerprint
+        run: cargo test --workspace --all-features determinism -- --nocapture
+
+  docs:
+    name: rustdoc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install audio development headers
+        # verdant-audio's default `device` feature reaches the speakers
+        # through cpal, which needs ALSA's headers on Linux.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev
+      - uses: Swatinem/rust-cache@v2
+      - name: Build documentation
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --workspace --no-deps --all-features
+
+  build:
+    name: release build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install windowing and audio development headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --workspace --release
+
+  # The APK. GitHub's Linux runners ship the Android SDK and NDK, so this needs
+  # no external service — the artifact it produces installs on a real device
+  # with `adb install`.
+  android:
+    name: android apk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Add the Android Rust targets
+        run: |
+          rustup target add \
+            aarch64-linux-android \
+            armv7-linux-androideabi \
+            x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build the APK
+        # The engine's own tool, not a script kept beside the game: it derives
+        # the manifest, the Gradle module and the NDK API level from one
+        # configuration, so they cannot drift apart.
+        env:
+          # No ANDROID_NDK_HOME here on purpose: the runner already exports
+          # ANDROID_NDK_ROOT and ANDROID_NDK_LATEST_HOME, and the tool checks
+          # all three. Setting it from an `env` context that does not carry
+          # runner variables exported an empty string and broke the build.
+          #
+          # The Android build compiles C++ for Oboe, and a warning from a
+          # third-party build script is not this project's to fix.
+          RUSTFLAGS: ""
+        run: |
+          cargo run --release -p verdant-app --bin verdant-android -- build \
+            --name "Verdant Hollow" \
+            --package dev.verdant.hollow \
+            --crate verdant-hollow \
+            --out target/android
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: verdant-hollow-debug-apk
+          path: target/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

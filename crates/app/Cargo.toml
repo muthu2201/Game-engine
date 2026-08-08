@@ -1,0 +1,16 @@
+[package]
+name = "verdant-app"
+description = "Platform packaging for games built on the Verdant engine, including Android APK generation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "verdant-android"
+path = "src/bin/verdant-android.rs"
+
+[lints]
+workspace = true

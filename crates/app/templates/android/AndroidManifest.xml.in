@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The game runs entirely offline and generates its own art and music,
+         so it asks for no permissions at all. -->
+
+    <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:hasFragileUserData="true"
+        android:allowBackup="true"
+        android:supportsRtl="true">
+
+        <!-- NativeActivity rather than a Java subclass: android-activity's
+             native-activity backend needs no Java or Kotlin of our own, which
+             keeps the whole game in one language. android.app.lib_name names
+             the shared library whose android_main is the entry point. -->
+        <activity
+            android:name="android.app.NativeActivity"
+            android:label="@string/app_name"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="{{ORIENTATION}}"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize|density|uiMode"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="{{LIB_NAME}}" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

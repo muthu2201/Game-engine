@@ -1,0 +1,30 @@
+[package]
+name = "verdant-audio"
+description = "Deterministic software mixer and procedural synthesis for the Verdant engine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# The cpal output backend. On by default because a game needs to make a noise;
+# turn it off (`--no-default-features`) to build the mixer on a machine with no
+# audio development headers, which is what the determinism tests need.
+default = ["device"]
+device = ["dep:cpal", "dep:oboe"]
+
+[dependencies]
+verdant-core-math = { workspace = true }
+cpal = { workspace = true, optional = true }
+log = { workspace = true }
+
+# On Android cpal goes through Oboe, which is C++. Linking the shared C++
+# runtime rather than the static one keeps the APK from carrying two copies of
+# libc++ when another dependency needs it too.
+[target.'cfg(target_os = "android")'.dependencies]
+oboe = { workspace = true, optional = true, features = ["shared-stdcxx"] }
+
+[lints]
+workspace = true

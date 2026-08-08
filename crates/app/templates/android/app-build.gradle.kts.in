@@ -1,0 +1,56 @@
+plugins {
+    id("com.android.application")
+}
+
+android {
+    namespace = "{{PACKAGE}}"
+    compileSdk = {{COMPILE_SDK}}
+
+    defaultConfig {
+        applicationId = "{{PACKAGE}}"
+        // The generator keeps this in step with the API level it passes to
+        // cargo-ndk: the NDK sysroot for a given level only carries the
+        // libraries that existed then, so a mismatch fails at link time.
+        minSdk = {{MIN_SDK}}
+        targetSdk = {{COMPILE_SDK}}
+        versionCode = {{VERSION_CODE}}
+        versionName = "{{VERSION_NAME}}"
+    }
+
+    // The .so files come from cargo-ndk, which writes them into this tree
+    // before Gradle runs. Gradle is only a packager here — it never invokes
+    // the Rust build, so a failure has one obvious owner.
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDirs("src/main/jniLibs")
+        }
+    }
+
+    buildTypes {
+        release {
+            // Unsigned by default: a release key belongs to whoever publishes
+            // the game, not to the repository.
+            isMinifyEnabled = false
+        }
+        debug {
+            // Signed with the standard debug key, so CI's artifact installs
+            // on any device with `adb install`.
+            isDebuggable = true
+        }
+    }
+
+    // No Java or Kotlin source: android-activity's NativeActivity backend
+    // means the whole game is Rust.
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    packaging {
+        jniLibs {
+            // The debug build keeps symbols so a native crash in CI has a
+            // readable stack.
+            keepDebugSymbols += "**/*.so"
+        }
+    }
+}
