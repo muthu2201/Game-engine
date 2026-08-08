@@ -3,20 +3,18 @@ plugins {
 }
 
 android {
-    namespace = "dev.verdant.hollow"
-    compileSdk = 35
+    namespace = "{{PACKAGE}}"
+    compileSdk = {{COMPILE_SDK}}
 
     defaultConfig {
-        applicationId = "dev.verdant.hollow"
-        // 26, and not lower, because that is where AAudio appears: cpal
-        // reaches the speakers through Oboe, which links libaaudio, and the
-        // NDK sysroot for an earlier level simply does not contain it. It is
-        // also comfortably past 24, where Vulkan support becomes dependable.
-        // Keep this in step with `--platform` in android/build-apk.sh.
-        minSdk = 26
-        targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        applicationId = "{{PACKAGE}}"
+        // The generator keeps this in step with the API level it passes to
+        // cargo-ndk: the NDK sysroot for a given level only carries the
+        // libraries that existed then, so a mismatch fails at link time.
+        minSdk = {{MIN_SDK}}
+        targetSdk = {{COMPILE_SDK}}
+        versionCode = {{VERSION_CODE}}
+        versionName = "{{VERSION_NAME}}"
     }
 
     // The .so files come from cargo-ndk, which writes them into this tree

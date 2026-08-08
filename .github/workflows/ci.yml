@@ -190,18 +190,24 @@ jobs:
         run: cargo install cargo-ndk --locked
 
       - name: Build the APK
+        # The engine's own tool, not a script kept beside the game: it derives
+        # the manifest, the Gradle module and the NDK API level from one
+        # configuration, so they cannot drift apart.
         env:
-          # The runner exports the NDK path under this name; the build script
-          # falls back to it when ANDROID_NDK_HOME is unset.
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
           # The Android build compiles C++ for Oboe, and a warning from a
           # third-party build script is not this project's to fix.
           RUSTFLAGS: ""
-        run: android/build-apk.sh debug
+        run: |
+          cargo run --release -p verdant-app --bin verdant-android -- build \
+            --name "Verdant Hollow" \
+            --package dev.verdant.hollow \
+            --crate verdant-hollow \
+            --out target/android
 
       - name: Upload the APK
         uses: actions/upload-artifact@v4
         with:
           name: verdant-hollow-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          path: target/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error

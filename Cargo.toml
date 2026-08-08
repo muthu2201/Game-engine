@@ -7,6 +7,7 @@ members = [
     "crates/tilemap",
     "crates/input",
     "crates/save",
+    "crates/app",
     "crates/audio",
     "crates/render-2d",
     "crates/procgen-art",
@@ -30,6 +31,7 @@ verdant-physics-2d = { path = "crates/physics-2d", version = "0.1.0" }
 verdant-tilemap = { path = "crates/tilemap", version = "0.1.0" }
 verdant-input = { path = "crates/input", version = "0.1.0" }
 verdant-save = { path = "crates/save", version = "0.1.0" }
+verdant-app = { path = "crates/app", version = "0.1.0" }
 verdant-assets = { path = "crates/assets", version = "0.1.0" }
 # Default features off at the workspace level so a member can opt in to the
 # audio backend; Cargo ignores a member's `default-features = false` unless

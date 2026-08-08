@@ -11,8 +11,12 @@ fail, and no possibility of a sprite going missing at runtime.
 ## Running it
 
 ```sh
-cargo run -p verdant-hollow --release          # desktop
-android/build-apk.sh debug                     # Android — see android/README.md
+# Desktop
+cargo run -p verdant-hollow --release
+
+# Android: the engine generates the project and builds the APK
+cargo run -p verdant-app --bin verdant-android -- build \
+    --name "Verdant Hollow" --package dev.verdant.hollow --crate verdant-hollow
 ```
 
 On a machine with no display — a CI runner, a container — render frames to PNG
@@ -47,6 +51,7 @@ cargo run -p verdant-hollow --example screenshot -- target/screenshots
 | `procgen-art` | Palette-enforced pixel-art generation with provenance records |
 | `audio` | Deterministic mixer, procedural synthesis, generated music |
 | `runtime` | Fixed-timestep loop and the replay/determinism harness |
+| `app` | Platform packaging: generates and builds the Android application |
 | `games/verdant-hollow` | The game |
 
 ## Determinism
@@ -96,8 +101,27 @@ cargo doc --workspace --no-deps --open
 ```
 
 Every public item is documented, and the docs explain *why* a thing is the way
-it is rather than restating its signature. `android/README.md` covers the
-Android build, the activity lifecycle and the touch layout.
+it is rather than restating its signature. `verdant_app::android` covers the
+Android build; `verdant_hollow::app` covers the activity lifecycle.
+
+## Android
+
+Android is an engine capability, not something bolted onto one game. The engine
+holds the manifest and Gradle templates and derives the whole project from a
+single `AndroidApp` value, so any game gets an APK:
+
+```rust
+AndroidApp::new("My Game", "com.example.game", "my-game")
+    .build(Path::new("."), Path::new("target/android"), Profile::Debug)?;
+```
+
+That is not just tidiness. The API level passed to the NDK must match Gradle's
+`minSdk`, the manifest's `lib_name` must match Cargo's `[lib] name` after
+hyphen substitution, and the `jniLibs` directory Gradle reads must be the one
+the cross-compiler writes to. Hand-maintained in separate files those pairs
+drift, and each failure is late and confusing — a missing system library at
+link time, a crash at launch, an APK with no native code in it. Derived from
+one value, they cannot.
 
 ## Licence
 

@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "VerdantHollow"
+rootProject.name = "{{PROJECT_NAME}}"
 include(":app")
