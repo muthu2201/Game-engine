@@ -1,0 +1,20 @@
+[package]
+name = "verdant-procgen-art"
+description = "Deterministic, palette-enforcing procedural pixel-art generation with provenance metadata."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+verdant-core-math = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+png = { workspace = true }
+
+[lints]
+workspace = true

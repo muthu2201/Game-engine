@@ -779,6 +779,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "verdant-procgen-art"
+version = "0.1.0"
+dependencies = [
+ "png",
+ "serde",
+ "serde_json",
+ "verdant-core-math",
+]
+
+[[package]]
 name = "verdant-render-2d"
 version = "0.1.0"
 dependencies = [

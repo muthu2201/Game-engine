@@ -8,6 +8,7 @@ members = [
     "crates/input",
     "crates/save",
     "crates/render-2d",
+    "crates/procgen-art",
 ]
 
 [workspace.package]
