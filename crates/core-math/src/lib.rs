@@ -90,7 +90,9 @@ impl StateHasher {
     #[inline]
     #[must_use]
     pub const fn new() -> StateHasher {
-        StateHasher { hash: StateHasher::OFFSET_BASIS }
+        StateHasher {
+            hash: StateHasher::OFFSET_BASIS,
+        }
     }
 
     /// Folds a byte slice into the hash.
@@ -159,7 +161,11 @@ mod tests {
         let mut b = StateHasher::new();
         b.write_u32(2);
         b.write_u32(1);
-        assert_ne!(a.finish(), b.finish(), "a state hash must notice reordering");
+        assert_ne!(
+            a.finish(),
+            b.finish(),
+            "a state hash must notice reordering"
+        );
     }
 
     #[test]

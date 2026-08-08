@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/core-math"]
+members = ["crates/core-math", "crates/core-ecs"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.86"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/muthu2201/Game-engine"
 authors = ["Verdant Engine contributors"]

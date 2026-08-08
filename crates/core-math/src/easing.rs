@@ -288,7 +288,11 @@ mod tests {
     fn back_curves_actually_overshoot() {
         // BackIn must dip below zero; BackOut must rise above one. If they did
         // not, the constant would be wrong and the effect invisible.
-        let dips = (0..50).any(|step| Easing::BackIn.apply(Fx::from_ratio(step, 100)).is_negative());
+        let dips = (0..50).any(|step| {
+            Easing::BackIn
+                .apply(Fx::from_ratio(step, 100))
+                .is_negative()
+        });
         assert!(dips, "BackIn should undershoot near the start");
         let overshoots =
             (50..100).any(|step| Easing::BackOut.apply(Fx::from_ratio(step, 100)) > Fx::ONE);
@@ -299,7 +303,10 @@ mod tests {
     fn in_out_curves_pass_through_the_midpoint() {
         for easing in [Easing::QuadInOut, Easing::CubicInOut, Easing::SineInOut] {
             let midpoint = easing.apply(Fx::HALF).to_f64();
-            assert!((midpoint - 0.5).abs() < 1e-3, "{easing:?} midpoint was {midpoint}");
+            assert!(
+                (midpoint - 0.5).abs() < 1e-3,
+                "{easing:?} midpoint was {midpoint}"
+            );
         }
     }
 

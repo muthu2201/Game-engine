@@ -41,7 +41,10 @@ impl Rng {
     pub fn with_stream(seed: u64, stream: u64) -> Rng {
         // The low bit of the increment must be set for the full 2^64 period.
         let increment = (stream << 1) | 1;
-        let mut rng = Rng { state: 0, increment };
+        let mut rng = Rng {
+            state: 0,
+            increment,
+        };
         // Standard PCG seeding procedure: step, add the seed, step again.
         rng.next_u32();
         rng.state = rng.state.wrapping_add(seed);
@@ -69,7 +72,9 @@ impl Rng {
     #[inline]
     pub fn next_u32(&mut self) -> u32 {
         let previous = self.state;
-        self.state = previous.wrapping_mul(PCG_MULTIPLIER).wrapping_add(self.increment);
+        self.state = previous
+            .wrapping_mul(PCG_MULTIPLIER)
+            .wrapping_add(self.increment);
         // XSH-RR output permutation: xorshift the high bits down, then rotate
         // by an amount taken from the very highest bits.
         #[allow(clippy::cast_possible_truncation)]
@@ -314,7 +319,10 @@ mod tests {
         // Each bucket should hold ~10000; allow a generous 5% band so the test
         // is not flaky while still catching a genuinely skewed generator.
         for count in buckets {
-            assert!((9_500..10_500).contains(&count), "bucket counts were {buckets:?}");
+            assert!(
+                (9_500..10_500).contains(&count),
+                "bucket counts were {buckets:?}"
+            );
         }
     }
 
@@ -343,7 +351,10 @@ mod tests {
         let mut rng = Rng::new(19);
         for _ in 0..5000 {
             let value = rng.unit();
-            assert!(value >= Fx::ZERO && value < Fx::ONE, "unit() produced {value}");
+            assert!(
+                value >= Fx::ZERO && value < Fx::ONE,
+                "unit() produced {value}"
+            );
         }
     }
 
@@ -352,7 +363,9 @@ mod tests {
         let mut rng = Rng::new(23);
         let weights = [0u32, 5, 0, 3, 0];
         for _ in 0..2000 {
-            let index = rng.pick_weighted(&weights).expect("weights are non-zero overall");
+            let index = rng
+                .pick_weighted(&weights)
+                .expect("weights are non-zero overall");
             assert!(weights[index] > 0, "selected zero-weight index {index}");
         }
         assert_eq!(rng.pick_weighted(&[0, 0, 0]), None);
@@ -368,7 +381,10 @@ mod tests {
             counts[rng.pick_weighted(&weights).unwrap()] += 1;
         }
         let ratio = f64::from(counts[1]) / f64::from(counts[0]);
-        assert!((ratio - 9.0).abs() < 1.0, "expected roughly 9:1, got {ratio}");
+        assert!(
+            (ratio - 9.0).abs() < 1.0,
+            "expected roughly 9:1, got {ratio}"
+        );
     }
 
     #[test]
@@ -376,9 +392,17 @@ mod tests {
         let mut rng = Rng::new(31);
         let mut items: Vec<u32> = (0..64).collect();
         rng.shuffle(&mut items);
-        assert_ne!(items, (0..64).collect::<Vec<u32>>(), "shuffling should reorder");
+        assert_ne!(
+            items,
+            (0..64).collect::<Vec<u32>>(),
+            "shuffling should reorder"
+        );
         items.sort_unstable();
-        assert_eq!(items, (0..64).collect::<Vec<u32>>(), "no element lost or duplicated");
+        assert_eq!(
+            items,
+            (0..64).collect::<Vec<u32>>(),
+            "no element lost or duplicated"
+        );
     }
 
     #[test]
@@ -416,14 +440,20 @@ mod tests {
         let expected: Vec<u32> = (0..16).map(|_| rng.next_u32()).collect();
         rng.restore(snapshot);
         let replayed: Vec<u32> = (0..16).map(|_| rng.next_u32()).collect();
-        assert_eq!(expected, replayed, "restoring must rewind the sequence exactly");
+        assert_eq!(
+            expected, replayed,
+            "restoring must rewind the sequence exactly"
+        );
     }
 
     #[test]
     fn chance_respects_its_probability() {
         let mut rng = Rng::new(53);
         let hits = (0..10_000).filter(|_| rng.chance(1, 4)).count();
-        assert!((2_300..2_700).contains(&hits), "expected ~2500 hits, got {hits}");
+        assert!(
+            (2_300..2_700).contains(&hits),
+            "expected ~2500 hits, got {hits}"
+        );
         // Degenerate probabilities must be absolute, not approximate.
         assert!((0..100).all(|_| !rng.chance(0, 10)));
         assert!((0..100).all(|_| rng.chance(10, 10)));

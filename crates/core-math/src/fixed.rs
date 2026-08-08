@@ -126,7 +126,10 @@ impl Fx {
     #[inline]
     #[must_use]
     pub const fn from_ratio(numerator: i32, denominator: i32) -> Fx {
-        assert!(denominator != 0, "Fx::from_ratio: denominator must be non-zero");
+        assert!(
+            denominator != 0,
+            "Fx::from_ratio: denominator must be non-zero"
+        );
         Fx(((numerator as i64) << FRACTIONAL_BITS) / (denominator as i64))
     }
 
@@ -391,7 +394,10 @@ impl Fx {
     /// Panics if `self` is negative.
     #[must_use]
     pub fn sqrt(self) -> Fx {
-        assert!(self.0 >= 0, "Fx::sqrt: cannot take the square root of a negative value");
+        assert!(
+            self.0 >= 0,
+            "Fx::sqrt: cannot take the square root of a negative value"
+        );
         if self.0 == 0 {
             return Fx::ZERO;
         }
@@ -704,7 +710,10 @@ mod tests {
         assert_eq!(fx(2) - fx(5), fx(-3));
         assert_eq!(fx(6) * fx(7), fx(42));
         assert_eq!(fx(42) / fx(7), fx(6));
-        assert_eq!(Fx::from_ratio(1, 2) * Fx::from_ratio(1, 2), Fx::from_ratio(1, 4));
+        assert_eq!(
+            Fx::from_ratio(1, 2) * Fx::from_ratio(1, 2),
+            Fx::from_ratio(1, 4)
+        );
     }
 
     #[test]
@@ -787,7 +796,10 @@ mod tests {
         for step in 0..360i32 {
             let radians = Fx::TAU * Fx::from_ratio(step, 360);
             let identity = radians.sin() * radians.sin() + radians.cos() * radians.cos();
-            assert!((identity.to_f64() - 1.0).abs() < 1e-3, "sin^2 + cos^2 drifted at {step} deg");
+            assert!(
+                (identity.to_f64() - 1.0).abs() < 1e-3,
+                "sin^2 + cos^2 drifted at {step} deg"
+            );
         }
     }
 

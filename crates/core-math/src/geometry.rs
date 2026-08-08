@@ -20,7 +20,10 @@ pub struct Rect {
 
 impl Rect {
     /// The degenerate rectangle at the origin.
-    pub const ZERO: Rect = Rect { min: Vec2::ZERO, size: Vec2::ZERO };
+    pub const ZERO: Rect = Rect {
+        min: Vec2::ZERO,
+        size: Vec2::ZERO,
+    };
 
     /// Builds a rectangle from its top-left corner and size.
     #[inline]
@@ -34,14 +37,20 @@ impl Rect {
     #[must_use]
     pub fn from_corners(a: Vec2, b: Vec2) -> Rect {
         let min = a.min(b);
-        Rect { min, size: a.max(b) - min }
+        Rect {
+            min,
+            size: a.max(b) - min,
+        }
     }
 
     /// Builds a rectangle centred on `centre`.
     #[inline]
     #[must_use]
     pub fn from_centre(centre: Vec2, size: Vec2) -> Rect {
-        Rect { min: centre - size * Fx::HALF, size }
+        Rect {
+            min: centre - size * Fx::HALF,
+            size,
+        }
     }
 
     /// Builds a rectangle from integer components, the common case for tile and
@@ -49,7 +58,10 @@ impl Rect {
     #[inline]
     #[must_use]
     pub const fn from_ints(x: i32, y: i32, width: i32, height: i32) -> Rect {
-        Rect { min: Vec2::from_ints(x, y), size: Vec2::from_ints(width, height) }
+        Rect {
+            min: Vec2::from_ints(x, y),
+            size: Vec2::from_ints(width, height),
+        }
     }
 
     /// The maximum corner (`min + size`).
@@ -152,7 +164,10 @@ impl Rect {
         let min = self.min.max(other.min);
         let max = self.max().min(other.max());
         if min.x < max.x && min.y < max.y {
-            Some(Rect { min, size: max - min })
+            Some(Rect {
+                min,
+                size: max - min,
+            })
         } else {
             None
         }
@@ -163,7 +178,10 @@ impl Rect {
     pub fn union(self, other: Rect) -> Rect {
         let min = self.min.min(other.min);
         let max = self.max().max(other.max());
-        Rect { min, size: max - min }
+        Rect {
+            min,
+            size: max - min,
+        }
     }
 
     /// Grows the rectangle by `amount` on every side. A negative amount shrinks
@@ -171,14 +189,20 @@ impl Rect {
     #[inline]
     #[must_use]
     pub fn expand(self, amount: Fx) -> Rect {
-        Rect { min: self.min - Vec2::splat(amount), size: self.size + Vec2::splat(amount * Fx::TWO) }
+        Rect {
+            min: self.min - Vec2::splat(amount),
+            size: self.size + Vec2::splat(amount * Fx::TWO),
+        }
     }
 
     /// Returns the rectangle translated by `offset`.
     #[inline]
     #[must_use]
     pub fn translate(self, offset: Vec2) -> Rect {
-        Rect { min: self.min + offset, size: self.size }
+        Rect {
+            min: self.min + offset,
+            size: self.size,
+        }
     }
 
     /// Returns `point` clamped to lie within the rectangle.
@@ -202,10 +226,18 @@ impl Rect {
         let overlap = self.intersection(other)?;
         if overlap.size.x < overlap.size.y {
             // Push horizontally, in whichever direction is shorter.
-            let sign = if other.centre().x < self.centre().x { Fx::NEG_ONE } else { Fx::ONE };
+            let sign = if other.centre().x < self.centre().x {
+                Fx::NEG_ONE
+            } else {
+                Fx::ONE
+            };
             Some(Vec2::new(overlap.size.x * sign, Fx::ZERO))
         } else {
-            let sign = if other.centre().y < self.centre().y { Fx::NEG_ONE } else { Fx::ONE };
+            let sign = if other.centre().y < self.centre().y {
+                Fx::NEG_ONE
+            } else {
+                Fx::ONE
+            };
             Some(Vec2::new(Fx::ZERO, overlap.size.y * sign))
         }
     }
@@ -328,7 +360,11 @@ pub fn ray_vs_rect(origin: Vec2, direction: Vec2, rect: Rect) -> Option<RayHit> 
         Vec2::UP
     };
 
-    Some(RayHit { time, point: origin + direction * time, normal })
+    Some(RayHit {
+        time,
+        point: origin + direction * time,
+        normal,
+    })
 }
 
 /// Sweeps `moving` along `displacement` against the stationary rectangle
@@ -343,7 +379,10 @@ pub fn sweep_rect_vs_rect(moving: Rect, displacement: Vec2, obstacle: Rect) -> O
         return None;
     }
     // Expanding the obstacle by the mover's size turns the mover into a point.
-    let expanded = Rect::new(obstacle.min - moving.size * Fx::HALF, obstacle.size + moving.size);
+    let expanded = Rect::new(
+        obstacle.min - moving.size * Fx::HALF,
+        obstacle.size + moving.size,
+    );
     ray_vs_rect(moving.centre(), displacement, expanded)
 }
 
@@ -355,9 +394,15 @@ mod tests {
     #[test]
     fn contains_point_uses_half_open_bounds() {
         let rect = Rect::from_ints(0, 0, 10, 10);
-        assert!(rect.contains_point(Vec2::from_ints(0, 0)), "min corner is inside");
+        assert!(
+            rect.contains_point(Vec2::from_ints(0, 0)),
+            "min corner is inside"
+        );
         assert!(rect.contains_point(Vec2::from_ints(9, 9)));
-        assert!(!rect.contains_point(Vec2::from_ints(10, 5)), "max edge is outside");
+        assert!(
+            !rect.contains_point(Vec2::from_ints(10, 5)),
+            "max edge is outside"
+        );
         assert!(!rect.contains_point(Vec2::from_ints(5, 10)));
         assert!(!rect.contains_point(Vec2::from_ints(-1, 5)));
     }
@@ -366,7 +411,10 @@ mod tests {
     fn touching_rectangles_do_not_count_as_intersecting() {
         let floor = Rect::from_ints(0, 10, 10, 2);
         let resting = Rect::from_ints(0, 0, 10, 10);
-        assert!(!floor.intersects(resting), "a body resting exactly on a floor is not colliding");
+        assert!(
+            !floor.intersects(resting),
+            "a body resting exactly on a floor is not colliding"
+        );
         let sunk = Rect::from_ints(0, 1, 10, 10);
         assert!(floor.intersects(sunk));
     }
@@ -403,9 +451,18 @@ mod tests {
     #[test]
     fn circle_rect_test_handles_corners_and_containment() {
         let rect = Rect::from_ints(0, 0, 10, 10);
-        assert!(Circle::new(Vec2::from_ints(5, 5), fx(1)).intersects_rect(rect), "inside");
-        assert!(Circle::new(Vec2::from_ints(-1, 5), fx(2)).intersects_rect(rect), "through an edge");
-        assert!(Circle::new(Vec2::from_ints(-1, -1), fx(2)).intersects_rect(rect), "past a corner");
+        assert!(
+            Circle::new(Vec2::from_ints(5, 5), fx(1)).intersects_rect(rect),
+            "inside"
+        );
+        assert!(
+            Circle::new(Vec2::from_ints(-1, 5), fx(2)).intersects_rect(rect),
+            "through an edge"
+        );
+        assert!(
+            Circle::new(Vec2::from_ints(-1, -1), fx(2)).intersects_rect(rect),
+            "past a corner"
+        );
         assert!(
             !Circle::new(Vec2::from_ints(-5, -5), fx(2)).intersects_rect(rect),
             "clear of the corner"
@@ -454,7 +511,11 @@ mod tests {
         assert_eq!(hit.normal, Vec2::LEFT);
         // Contact when the body's right edge reaches the wall's left edge: the
         // centre travels from 1 to 49, i.e. 48 of the 100 units.
-        assert!((hit.time.to_f64() - 0.48).abs() < 1e-6, "time was {}", hit.time.to_f64());
+        assert!(
+            (hit.time.to_f64() - 0.48).abs() < 1e-6,
+            "time was {}",
+            hit.time.to_f64()
+        );
     }
 
     #[test]

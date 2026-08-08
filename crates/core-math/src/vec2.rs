@@ -21,21 +21,45 @@ pub struct Vec2 {
 
 impl Vec2 {
     /// The zero vector.
-    pub const ZERO: Vec2 = Vec2 { x: Fx::ZERO, y: Fx::ZERO };
+    pub const ZERO: Vec2 = Vec2 {
+        x: Fx::ZERO,
+        y: Fx::ZERO,
+    };
     /// `(1, 1)`.
-    pub const ONE: Vec2 = Vec2 { x: Fx::ONE, y: Fx::ONE };
+    pub const ONE: Vec2 = Vec2 {
+        x: Fx::ONE,
+        y: Fx::ONE,
+    };
     /// `(1, 0)`.
-    pub const X: Vec2 = Vec2 { x: Fx::ONE, y: Fx::ZERO };
+    pub const X: Vec2 = Vec2 {
+        x: Fx::ONE,
+        y: Fx::ZERO,
+    };
     /// `(0, 1)`.
-    pub const Y: Vec2 = Vec2 { x: Fx::ZERO, y: Fx::ONE };
+    pub const Y: Vec2 = Vec2 {
+        x: Fx::ZERO,
+        y: Fx::ONE,
+    };
     /// Screen-space up, `(0, -1)`.
-    pub const UP: Vec2 = Vec2 { x: Fx::ZERO, y: Fx::NEG_ONE };
+    pub const UP: Vec2 = Vec2 {
+        x: Fx::ZERO,
+        y: Fx::NEG_ONE,
+    };
     /// Screen-space down, `(0, 1)`.
-    pub const DOWN: Vec2 = Vec2 { x: Fx::ZERO, y: Fx::ONE };
+    pub const DOWN: Vec2 = Vec2 {
+        x: Fx::ZERO,
+        y: Fx::ONE,
+    };
     /// `(-1, 0)`.
-    pub const LEFT: Vec2 = Vec2 { x: Fx::NEG_ONE, y: Fx::ZERO };
+    pub const LEFT: Vec2 = Vec2 {
+        x: Fx::NEG_ONE,
+        y: Fx::ZERO,
+    };
     /// `(1, 0)`.
-    pub const RIGHT: Vec2 = Vec2 { x: Fx::ONE, y: Fx::ZERO };
+    pub const RIGHT: Vec2 = Vec2 {
+        x: Fx::ONE,
+        y: Fx::ZERO,
+    };
 
     /// Builds a vector from two fixed-point components.
     #[inline]
@@ -48,7 +72,10 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub const fn from_ints(x: i32, y: i32) -> Vec2 {
-        Vec2 { x: Fx::from_num(x), y: Fx::from_num(y) }
+        Vec2 {
+            x: Fx::from_num(x),
+            y: Fx::from_num(y),
+        }
     }
 
     /// A vector with both components set to `value`.
@@ -62,7 +89,10 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn from_angle(angle: Fx, length: Fx) -> Vec2 {
-        Vec2 { x: angle.cos() * length, y: angle.sin() * length }
+        Vec2 {
+            x: angle.cos() * length,
+            y: angle.sin() * length,
+        }
     }
 
     /// Dot product.
@@ -129,7 +159,10 @@ impl Vec2 {
         if length.is_zero() {
             Vec2::ZERO
         } else {
-            Vec2 { x: self.x / length, y: self.y / length }
+            Vec2 {
+                x: self.x / length,
+                y: self.y / length,
+            }
         }
     }
 
@@ -150,14 +183,20 @@ impl Vec2 {
     #[must_use]
     pub fn rotate(self, angle: Fx) -> Vec2 {
         let (sin, cos) = (angle.sin(), angle.cos());
-        Vec2 { x: self.x * cos - self.y * sin, y: self.x * sin + self.y * cos }
+        Vec2 {
+            x: self.x * cos - self.y * sin,
+            y: self.x * sin + self.y * cos,
+        }
     }
 
     /// The vector rotated 90° clockwise: `(x, y) -> (-y, x)`.
     #[inline]
     #[must_use]
     pub fn perpendicular(self) -> Vec2 {
-        Vec2 { x: -self.y, y: self.x }
+        Vec2 {
+            x: -self.y,
+            y: self.x,
+        }
     }
 
     /// Angle of this vector in radians, measured from the +X axis.
@@ -171,49 +210,70 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn abs(self) -> Vec2 {
-        Vec2 { x: self.x.abs(), y: self.y.abs() }
+        Vec2 {
+            x: self.x.abs(),
+            y: self.y.abs(),
+        }
     }
 
     /// Component-wise floor.
     #[inline]
     #[must_use]
     pub fn floor(self) -> Vec2 {
-        Vec2 { x: self.x.floor(), y: self.y.floor() }
+        Vec2 {
+            x: self.x.floor(),
+            y: self.y.floor(),
+        }
     }
 
     /// Component-wise round.
     #[inline]
     #[must_use]
     pub fn round(self) -> Vec2 {
-        Vec2 { x: self.x.round(), y: self.y.round() }
+        Vec2 {
+            x: self.x.round(),
+            y: self.y.round(),
+        }
     }
 
     /// Component-wise minimum.
     #[inline]
     #[must_use]
     pub fn min(self, other: Vec2) -> Vec2 {
-        Vec2 { x: self.x.min(other.x), y: self.y.min(other.y) }
+        Vec2 {
+            x: self.x.min(other.x),
+            y: self.y.min(other.y),
+        }
     }
 
     /// Component-wise maximum.
     #[inline]
     #[must_use]
     pub fn max(self, other: Vec2) -> Vec2 {
-        Vec2 { x: self.x.max(other.x), y: self.y.max(other.y) }
+        Vec2 {
+            x: self.x.max(other.x),
+            y: self.y.max(other.y),
+        }
     }
 
     /// Component-wise multiplication.
     #[inline]
     #[must_use]
     pub fn mul_components(self, other: Vec2) -> Vec2 {
-        Vec2 { x: self.x * other.x, y: self.y * other.y }
+        Vec2 {
+            x: self.x * other.x,
+            y: self.y * other.y,
+        }
     }
 
     /// Linear interpolation toward `target`.
     #[inline]
     #[must_use]
     pub fn lerp(self, target: Vec2, t: Fx) -> Vec2 {
-        Vec2 { x: self.x.lerp(target.x, t), y: self.y.lerp(target.y, t) }
+        Vec2 {
+            x: self.x.lerp(target.x, t),
+            y: self.y.lerp(target.y, t),
+        }
     }
 
     /// Moves toward `target` by at most `max_delta`, never overshooting.
@@ -254,7 +314,10 @@ impl Vec2 {
     #[inline]
     #[must_use]
     pub fn to_tile(self, tile_size: Fx) -> (i32, i32) {
-        ((self.x / tile_size).floor_int(), (self.y / tile_size).floor_int())
+        (
+            (self.x / tile_size).floor_int(),
+            (self.y / tile_size).floor_int(),
+        )
     }
 
     /// Converts to a pair of `f32` for GPU upload.
@@ -269,7 +332,10 @@ impl Add for Vec2 {
     type Output = Vec2;
     #[inline]
     fn add(self, other: Vec2) -> Vec2 {
-        Vec2 { x: self.x + other.x, y: self.y + other.y }
+        Vec2 {
+            x: self.x + other.x,
+            y: self.y + other.y,
+        }
     }
 }
 
@@ -277,7 +343,10 @@ impl Sub for Vec2 {
     type Output = Vec2;
     #[inline]
     fn sub(self, other: Vec2) -> Vec2 {
-        Vec2 { x: self.x - other.x, y: self.y - other.y }
+        Vec2 {
+            x: self.x - other.x,
+            y: self.y - other.y,
+        }
     }
 }
 
@@ -285,7 +354,10 @@ impl Mul<Fx> for Vec2 {
     type Output = Vec2;
     #[inline]
     fn mul(self, scalar: Fx) -> Vec2 {
-        Vec2 { x: self.x * scalar, y: self.y * scalar }
+        Vec2 {
+            x: self.x * scalar,
+            y: self.y * scalar,
+        }
     }
 }
 
@@ -293,7 +365,10 @@ impl Mul<i32> for Vec2 {
     type Output = Vec2;
     #[inline]
     fn mul(self, scalar: i32) -> Vec2 {
-        Vec2 { x: self.x * scalar, y: self.y * scalar }
+        Vec2 {
+            x: self.x * scalar,
+            y: self.y * scalar,
+        }
     }
 }
 
@@ -304,7 +379,10 @@ impl Div<Fx> for Vec2 {
     /// Panics if `scalar` is zero.
     #[inline]
     fn div(self, scalar: Fx) -> Vec2 {
-        Vec2 { x: self.x / scalar, y: self.y / scalar }
+        Vec2 {
+            x: self.x / scalar,
+            y: self.y / scalar,
+        }
     }
 }
 
@@ -312,7 +390,10 @@ impl Neg for Vec2 {
     type Output = Vec2;
     #[inline]
     fn neg(self) -> Vec2 {
-        Vec2 { x: -self.x, y: -self.y }
+        Vec2 {
+            x: -self.x,
+            y: -self.y,
+        }
     }
 }
 
@@ -403,7 +484,10 @@ impl IVec2 {
     #[inline]
     #[must_use]
     pub fn to_world(self, tile_size: Fx) -> Vec2 {
-        Vec2::new(Fx::from_num(self.x) * tile_size, Fx::from_num(self.y) * tile_size)
+        Vec2::new(
+            Fx::from_num(self.x) * tile_size,
+            Fx::from_num(self.y) * tile_size,
+        )
     }
 
     /// Converts to the world position at the cell's centre.
@@ -432,7 +516,10 @@ impl Add for IVec2 {
     type Output = IVec2;
     #[inline]
     fn add(self, other: IVec2) -> IVec2 {
-        IVec2 { x: self.x + other.x, y: self.y + other.y }
+        IVec2 {
+            x: self.x + other.x,
+            y: self.y + other.y,
+        }
     }
 }
 
@@ -440,7 +527,10 @@ impl Sub for IVec2 {
     type Output = IVec2;
     #[inline]
     fn sub(self, other: IVec2) -> IVec2 {
-        IVec2 { x: self.x - other.x, y: self.y - other.y }
+        IVec2 {
+            x: self.x - other.x,
+            y: self.y - other.y,
+        }
     }
 }
 
@@ -448,7 +538,10 @@ impl Mul<i32> for IVec2 {
     type Output = IVec2;
     #[inline]
     fn mul(self, scalar: i32) -> IVec2 {
-        IVec2 { x: self.x * scalar, y: self.y * scalar }
+        IVec2 {
+            x: self.x * scalar,
+            y: self.y * scalar,
+        }
     }
 }
 
@@ -468,7 +561,10 @@ mod tests {
         for (x, y) in [(3, 4), (1, 0), (0, -7), (-5, 12), (8, 15)] {
             let normalized = Vec2::from_ints(x, y).normalize();
             let length = normalized.length().to_f64();
-            assert!((length - 1.0).abs() < 1e-6, "({x}, {y}) normalized to length {length}");
+            assert!(
+                (length - 1.0).abs() < 1e-6,
+                "({x}, {y}) normalized to length {length}"
+            );
         }
     }
 
@@ -481,7 +577,11 @@ mod tests {
     fn dot_and_cross_agree_with_geometry() {
         let a = Vec2::from_ints(1, 0);
         let b = Vec2::from_ints(0, 1);
-        assert_eq!(a.dot(b), Fx::ZERO, "perpendicular vectors have zero dot product");
+        assert_eq!(
+            a.dot(b),
+            Fx::ZERO,
+            "perpendicular vectors have zero dot product"
+        );
         assert_eq!(a.cross(b), Fx::ONE);
         assert_eq!(b.cross(a), Fx::NEG_ONE);
     }

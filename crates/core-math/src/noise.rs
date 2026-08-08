@@ -242,7 +242,10 @@ mod tests {
         for step in 100..=110i32 {
             let value = noise.sample(Fx::from_ratio(step, 100), Fx::HALF);
             let jump = (value - previous).abs();
-            assert!(jump < Fx::from_ratio(1, 10), "discontinuity of {jump} at step {step}");
+            assert!(
+                jump < Fx::from_ratio(1, 10),
+                "discontinuity of {jump} at step {step}"
+            );
             previous = value;
         }
     }
@@ -272,10 +275,16 @@ mod tests {
     fn fbm_stays_normalised_regardless_of_octave_count() {
         let noise = ValueNoise::new(555);
         for octaves in 1..=8u32 {
-            let settings = FbmSettings { octaves, ..FbmSettings::default() };
+            let settings = FbmSettings {
+                octaves,
+                ..FbmSettings::default()
+            };
             for i in 0..100i32 {
                 let value = fbm(noise, Fx::from_num(i), Fx::from_num(i * 2), settings);
-                assert!(value >= Fx::ZERO && value <= Fx::ONE, "{octaves} octaves gave {value}");
+                assert!(
+                    value >= Fx::ZERO && value <= Fx::ONE,
+                    "{octaves} octaves gave {value}"
+                );
             }
         }
     }
@@ -287,7 +296,12 @@ mod tests {
         let samples = 4000;
         let mut total = Fx::ZERO;
         for i in 0..samples {
-            total += fbm(noise, Fx::from_ratio(i, 3), Fx::from_ratio(i * 7, 5), settings);
+            total += fbm(
+                noise,
+                Fx::from_ratio(i, 3),
+                Fx::from_ratio(i * 7, 5),
+                settings,
+            );
         }
         let mean = (total / Fx::from_num(samples)).to_f64();
         assert!((mean - 0.5).abs() < 0.1, "fbm mean drifted to {mean}");
@@ -296,7 +310,10 @@ mod tests {
     #[test]
     fn fbm_with_zero_octaves_returns_the_midpoint() {
         let noise = ValueNoise::new(1);
-        let settings = FbmSettings { octaves: 0, ..FbmSettings::default() };
+        let settings = FbmSettings {
+            octaves: 0,
+            ..FbmSettings::default()
+        };
         assert_eq!(fbm(noise, Fx::ZERO, Fx::ZERO, settings), Fx::HALF);
     }
 
@@ -305,7 +322,12 @@ mod tests {
         let noise = ValueNoise::new(808);
         let settings = FbmSettings::default();
         for i in 0..500i32 {
-            let value = ridged(noise, Fx::from_ratio(i, 11), Fx::from_ratio(i, 13), settings);
+            let value = ridged(
+                noise,
+                Fx::from_ratio(i, 11),
+                Fx::from_ratio(i, 13),
+                settings,
+            );
             assert!(value >= Fx::ZERO && value <= Fx::ONE);
         }
     }
