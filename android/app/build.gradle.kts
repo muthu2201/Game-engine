@@ -8,10 +8,12 @@ android {
 
     defaultConfig {
         applicationId = "dev.verdant.hollow"
-        // 24 is where Vulkan support becomes dependable; wgpu falls back to
-        // GLES below that, and testing a fallback nobody ships on is not
-        // worth the surface area.
-        minSdk = 24
+        // 26, and not lower, because that is where AAudio appears: cpal
+        // reaches the speakers through Oboe, which links libaaudio, and the
+        // NDK sysroot for an earlier level simply does not contain it. It is
+        // also comfortably past 24, where Vulkan support becomes dependable.
+        // Keep this in step with `--platform` in android/build-apk.sh.
+        minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"

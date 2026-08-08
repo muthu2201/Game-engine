@@ -8,6 +8,11 @@
 # failure has exactly one owner and the error comes from the tool that caused
 # it.
 #
+# The API level passed to cargo-ndk must match `minSdk` in
+# app/build.gradle.kts: the NDK sysroot for a given level only carries the
+# libraries that existed at that level, so building against 24 fails to link
+# libaaudio, which arrived in 26.
+#
 # Requirements:
 #   * The Android NDK, located via ANDROID_NDK_HOME or ANDROID_NDK_LATEST_HOME.
 #   * cargo-ndk         (cargo install cargo-ndk)
@@ -50,7 +55,7 @@ cargo ndk \
     --target arm64-v8a \
     --target armeabi-v7a \
     --target x86_64 \
-    --platform 24 \
+    --platform 26 \
     --output-dir "$JNI_LIBS" \
     -- build --lib $CARGO_PROFILE_FLAG -p verdant-hollow
 
