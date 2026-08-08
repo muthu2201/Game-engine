@@ -11,10 +11,21 @@ authors.workspace = true
 [lib]
 name = "verdant_hollow"
 path = "src/lib.rs"
+# A cdylib as well as an rlib: Android loads the game as a shared library and
+# calls `android_main` in it, while the desktop binary links the rlib.
+crate-type = ["lib", "cdylib"]
 
 [[bin]]
 name = "verdant-hollow"
 path = "src/main.rs"
+
+[features]
+# Sound output. On by default; turn it off to build on a machine without the
+# platform's audio development headers — the mixer is still compiled and the
+# game still runs, it just plays silence. Android needs the NDK's C++
+# toolchain for this, since cpal reaches the device through Oboe.
+default = ["sound"]
+sound = ["verdant-audio/device"]
 
 [dependencies]
 verdant-core-math = { workspace = true }
@@ -27,12 +38,19 @@ verdant-render-2d = { workspace = true }
 wgpu = { workspace = true }
 verdant-procgen-art = { workspace = true }
 verdant-runtime = { workspace = true }
+verdant-audio = { workspace = true, default-features = false }
 winit = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 pollster = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true }
+
+# Android needs a glue crate to own the activity's entry point and a logger
+# that writes to logcat, since there is no stderr to print to.
+[target.'cfg(target_os = "android")'.dependencies]
+winit = { workspace = true, features = ["android-native-activity"] }
+android_logger = { workspace = true }
 
 [dev-dependencies]
 png = { workspace = true }

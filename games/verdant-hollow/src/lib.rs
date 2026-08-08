@@ -17,8 +17,10 @@
 //! | [`world`] | Valley and mine generation |
 //! | [`sim`] | The player, the villagers and the top-level game state |
 //! | [`render`] | Sprite generation, the atlas, the scene and the HUD |
+//! | [`app`] | The window, the frame loop and both platform entry points |
 #![doc(html_no_source)]
 
+pub mod app;
 pub mod calendar;
 pub mod farm;
 pub mod inventory;

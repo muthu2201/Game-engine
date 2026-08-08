@@ -5,6 +5,7 @@ use crate::gpu::{GpuContext, GpuError};
 use crate::sprite::{Color, SpriteInstance};
 use crate::texture::TextureArray;
 use bytemuck::{Pod, Zeroable};
+use verdant_core_math::{Fx, Vec2};
 use wgpu::util::DeviceExt;
 
 /// The per-frame uniform block, matching `Globals` in the shader.
@@ -547,9 +548,129 @@ pub fn letterbox(internal: (u32, u32), window: (u32, u32)) -> ((u32, u32), (u32,
     (origin, size)
 }
 
+/// Maps a window pixel onto the low-resolution frame.
+///
+/// The inverse of [`letterbox`]: a pointer or a finger arrives in window
+/// coordinates, but everything the game knows about — HUD panels, touch
+/// controls — is laid out in internal pixels. Returns `None` for a point in
+/// the letterbox, which is a press on nothing rather than a press on the
+/// nearest edge.
+#[must_use]
+pub fn window_to_internal(
+    internal: (u32, u32),
+    window: (u32, u32),
+    point: (f64, f64),
+) -> Option<Vec2> {
+    // A window with no area contains no points. Worth guarding explicitly:
+    // `letterbox` clamps its scale to at least 1, so it would otherwise
+    // report the image as filling a zero-sized window — and on Android a
+    // surface really does report 0x0 while the activity is being rotated or
+    // sent to the background.
+    if window.0 == 0 || window.1 == 0 {
+        return None;
+    }
+    let (origin, size) = letterbox(internal, window);
+    if size.0 == 0 || size.1 == 0 {
+        return None;
+    }
+
+    let local = (point.0 - f64::from(origin.0), point.1 - f64::from(origin.1));
+    if local.0 < 0.0 || local.1 < 0.0 {
+        return None;
+    }
+    if local.0 >= f64::from(size.0) || local.1 >= f64::from(size.1) {
+        return None;
+    }
+
+    let scale = f64::from(integer_scale(internal, window));
+    Some(Vec2::new(
+        Fx::from_f64(local.0 / scale),
+        Fx::from_f64(local.1 / scale),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_window_point_maps_onto_the_frame() {
+        // A 480x270 frame at 4x fills a 1920x1080 window exactly.
+        let point =
+            window_to_internal((480, 270), (1920, 1080), (400.0, 800.0)).expect("inside the image");
+        assert_eq!(point.x.to_int(), 100);
+        assert_eq!(point.y.to_int(), 200);
+    }
+
+    #[test]
+    fn the_frames_corners_map_to_the_windows_corners() {
+        let internal = (480, 270);
+        let window = (1920, 1080);
+        let top_left = window_to_internal(internal, window, (0.0, 0.0)).expect("inside");
+        assert_eq!((top_left.x.to_int(), top_left.y.to_int()), (0, 0));
+
+        let bottom_right = window_to_internal(internal, window, (1919.0, 1079.0)).expect("inside");
+        assert_eq!(
+            (bottom_right.x.to_int(), bottom_right.y.to_int()),
+            (479, 269)
+        );
+    }
+
+    #[test]
+    fn a_letterboxed_window_accounts_for_the_border() {
+        // 480x270 into 1000x600 scales 2x to 960x540, leaving 20px either
+        // side and 30px above and below.
+        let internal = (480, 270);
+        let window = (1000, 600);
+        assert_eq!(letterbox(internal, window), ((20, 30), (960, 540)));
+
+        let point = window_to_internal(internal, window, (20.0, 30.0)).expect("inside");
+        assert_eq!((point.x.to_int(), point.y.to_int()), (0, 0));
+
+        let centre = window_to_internal(internal, window, (500.0, 300.0)).expect("inside");
+        assert_eq!((centre.x.to_int(), centre.y.to_int()), (240, 135));
+    }
+
+    #[test]
+    fn a_point_in_the_letterbox_maps_to_nothing() {
+        // A press on the black bar is a press on nothing, not a press on the
+        // nearest edge of the game.
+        let internal = (480, 270);
+        let window = (1000, 600);
+        assert!(window_to_internal(internal, window, (5.0, 300.0)).is_none());
+        assert!(window_to_internal(internal, window, (500.0, 5.0)).is_none());
+        assert!(window_to_internal(internal, window, (995.0, 300.0)).is_none());
+        assert!(window_to_internal(internal, window, (500.0, 595.0)).is_none());
+    }
+
+    #[test]
+    fn a_negative_point_maps_to_nothing() {
+        assert!(window_to_internal((480, 270), (1920, 1080), (-1.0, 10.0)).is_none());
+    }
+
+    #[test]
+    fn a_degenerate_window_maps_to_nothing_rather_than_dividing_by_zero() {
+        assert!(window_to_internal((480, 270), (0, 0), (0.0, 0.0)).is_none());
+        assert!(window_to_internal((0, 0), (100, 100), (0.0, 0.0)).is_none());
+    }
+
+    #[test]
+    fn mapping_round_trips_through_the_letterbox() {
+        // Every internal pixel must be reachable from some window pixel, or
+        // part of the game would be untouchable.
+        let internal = (480, 270);
+        let window = (1080, 720);
+        let scale = f64::from(integer_scale(internal, window));
+        let (origin, _) = letterbox(internal, window);
+        for (x, y) in [(0, 0), (100, 50), (479, 269), (240, 135)] {
+            let window_point = (
+                f64::from(origin.0) + f64::from(x) * scale,
+                f64::from(origin.1) + f64::from(y) * scale,
+            );
+            let back = window_to_internal(internal, window, window_point).expect("inside");
+            assert_eq!((back.x.to_int(), back.y.to_int()), (x, y));
+        }
+    }
 
     #[test]
     fn integer_scaling_never_goes_fractional() {
