@@ -1,0 +1,24 @@
+[package]
+name = "verdant-audio"
+description = "Deterministic software mixer and procedural synthesis for the Verdant engine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+# The cpal output backend. On by default because a game needs to make a noise;
+# turn it off (`--no-default-features`) to build the mixer on a machine with no
+# audio development headers, which is what the determinism tests need.
+default = ["device"]
+device = ["dep:cpal"]
+
+[dependencies]
+verdant-core-math = { workspace = true }
+cpal = { workspace = true, optional = true }
+log = { workspace = true }
+
+[lints]
+workspace = true
