@@ -174,6 +174,62 @@ impl From<std::io::Error> for AndroidError {
     }
 }
 
+/// The environment variables that may point at an NDK, in the order they are
+/// consulted.
+///
+/// Three, because the ecosystem never settled on one: the NDK's own installer
+/// sets `ANDROID_NDK_HOME`, the Android SDK command-line tools set
+/// `ANDROID_NDK_ROOT`, and GitHub's runners set `ANDROID_NDK_LATEST_HOME`. A
+/// tool that reads only the first works on one machine and fails on the next.
+pub const NDK_VARIABLES: [&str; 3] = [
+    "ANDROID_NDK_HOME",
+    "ANDROID_NDK_ROOT",
+    "ANDROID_NDK_LATEST_HOME",
+];
+
+/// Chooses an NDK from a set of environment variables.
+///
+/// Empty values are skipped rather than accepted. That is not pedantry: a CI
+/// configuration that sets `ANDROID_NDK_HOME` to an unresolved expression
+/// exports an empty string, and taking it at face value produces
+/// "Error detecting NDK version for path " with nothing after the space —
+/// which is exactly the failure this rule prevents.
+fn pick_ndk(
+    lookup: impl Fn(&str) -> Option<String>,
+    exists: impl Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    for name in NDK_VARIABLES {
+        let Some(value) = lookup(name) else { continue };
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let path = PathBuf::from(trimmed);
+        if exists(&path) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Finds the Android NDK on this machine.
+///
+/// # Errors
+///
+/// Returns [`AndroidError::MissingTool`] when none of [`NDK_VARIABLES`] points
+/// at a directory that exists.
+pub fn resolve_ndk() -> Result<PathBuf, AndroidError> {
+    pick_ndk(|name| std::env::var(name).ok(), |path| path.is_dir()).ok_or_else(|| {
+        AndroidError::MissingTool {
+            tool: "the Android NDK".to_owned(),
+            hint: format!(
+                "Set one of {} to an NDK installation.",
+                NDK_VARIABLES.join(", ")
+            ),
+        }
+    })
+}
+
 /// Everything the engine needs to produce an Android application for a game.
 #[derive(Clone, Debug)]
 pub struct AndroidApp {
@@ -460,6 +516,11 @@ impl AndroidApp {
     ) -> Result<PathBuf, AndroidError> {
         self.generate(root)?;
 
+        // Resolved here rather than left to cargo-ndk so that a machine with
+        // no NDK gets one clear sentence instead of a version-detection error
+        // from a tool three layers down.
+        let ndk = resolve_ndk()?;
+
         let jni_libs = AndroidApp::jni_libs_directory(root);
         // Stale libraries from a previous ABI set would be packaged alongside
         // the new ones and shipped to devices that cannot load them.
@@ -469,7 +530,13 @@ impl AndroidApp {
         std::fs::create_dir_all(&jni_libs)?;
 
         let mut cargo = Command::new("cargo");
-        cargo.current_dir(workspace).arg("ndk");
+        cargo.current_dir(workspace);
+        // Pass the resolved path in both spellings: cargo-ndk warns and then
+        // fails when the two disagree, and on a runner that sets only
+        // ANDROID_NDK_ROOT they otherwise would.
+        cargo.env("ANDROID_NDK_HOME", &ndk);
+        cargo.env("ANDROID_NDK_ROOT", &ndk);
+        cargo.arg("ndk");
         for abi in &self.abis {
             cargo.arg("--target").arg(abi.name());
         }
@@ -829,6 +896,77 @@ mod tests {
         assert!(gradle.contains("src/main/jniLibs"));
         let path = AndroidApp::jni_libs_directory(Path::new("/tmp/project"));
         assert!(path.ends_with("app/src/main/jniLibs"));
+    }
+
+    /// A lookup over a fixed table, for the NDK resolution tests.
+    fn lookup<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |name| {
+            pairs
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| (*value).to_owned())
+        }
+    }
+
+    #[test]
+    fn the_ndk_is_found_through_any_of_the_usual_variables() {
+        // The ecosystem never settled on one name, so a tool that reads only
+        // the first works on one machine and fails on the next.
+        for name in NDK_VARIABLES {
+            let found = pick_ndk(lookup(&[(name, "/opt/ndk")]), |_| true);
+            assert_eq!(found, Some(PathBuf::from("/opt/ndk")), "{name} was ignored");
+        }
+    }
+
+    #[test]
+    fn an_empty_variable_does_not_count_as_an_ndk() {
+        // The exact CI failure this prevents: a workflow setting
+        // ANDROID_NDK_HOME to an unresolved expression exports an empty
+        // string, and taking it at face value fails deep inside cargo-ndk
+        // with a path that is not there.
+        let found = pick_ndk(
+            lookup(&[
+                ("ANDROID_NDK_HOME", ""),
+                ("ANDROID_NDK_ROOT", "/opt/real-ndk"),
+            ]),
+            |_| true,
+        );
+        assert_eq!(found, Some(PathBuf::from("/opt/real-ndk")));
+    }
+
+    #[test]
+    fn a_whitespace_variable_does_not_count_either() {
+        let found = pick_ndk(lookup(&[("ANDROID_NDK_HOME", "   ")]), |_| true);
+        assert_eq!(found, None);
+    }
+
+    #[test]
+    fn a_variable_pointing_nowhere_is_skipped() {
+        let found = pick_ndk(
+            lookup(&[
+                ("ANDROID_NDK_HOME", "/gone"),
+                ("ANDROID_NDK_ROOT", "/opt/real-ndk"),
+            ]),
+            |path| path == Path::new("/opt/real-ndk"),
+        );
+        assert_eq!(found, Some(PathBuf::from("/opt/real-ndk")));
+    }
+
+    #[test]
+    fn the_first_usable_variable_wins() {
+        let found = pick_ndk(
+            lookup(&[
+                ("ANDROID_NDK_HOME", "/first"),
+                ("ANDROID_NDK_ROOT", "/second"),
+            ]),
+            |_| true,
+        );
+        assert_eq!(found, Some(PathBuf::from("/first")));
+    }
+
+    #[test]
+    fn no_ndk_at_all_yields_nothing() {
+        assert_eq!(pick_ndk(lookup(&[]), |_| true), None);
     }
 
     #[test]

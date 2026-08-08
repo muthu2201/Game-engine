@@ -194,7 +194,11 @@ jobs:
         # the manifest, the Gradle module and the NDK API level from one
         # configuration, so they cannot drift apart.
         env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+          # No ANDROID_NDK_HOME here on purpose: the runner already exports
+          # ANDROID_NDK_ROOT and ANDROID_NDK_LATEST_HOME, and the tool checks
+          # all three. Setting it from an `env` context that does not carry
+          # runner variables exported an empty string and broke the build.
+          #
           # The Android build compiles C++ for Oboe, and a warning from a
           # third-party build script is not this project's to fix.
           RUSTFLAGS: ""
