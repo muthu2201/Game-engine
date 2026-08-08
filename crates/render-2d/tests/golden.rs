@@ -17,8 +17,8 @@
 
 use verdant_core_math::{fx, Fx, Rect, Vec2};
 use verdant_render_2d::{
-    Camera2D, Color, DrawSprite, FrameSettings, GpuContext, Presenter, RenderTarget, SpriteBatcher,
-    SpriteRenderer, TextureArray,
+    Camera2D, Color, Compositor, DrawSprite, FrameSettings, GpuContext, Light, LightRenderer,
+    LightSettings, Presenter, RenderTarget, SpriteBatcher, SpriteRenderer, TextureArray,
 };
 
 /// The scene fixture the tests draw with.
@@ -79,7 +79,7 @@ impl Harness {
             camera,
             batcher.prepare(),
             FrameSettings {
-                clear,
+                clear: Some(clear),
                 global_tint: tint,
             },
         );
@@ -636,10 +636,7 @@ fn present_into(
         &harness.bind_group,
         camera,
         batcher.prepare(),
-        FrameSettings {
-            clear,
-            global_tint: Color::WHITE,
-        },
+        FrameSettings::clearing(clear),
     );
 
     let window = RenderTarget::new(&harness.gpu, destination.0, destination.1);
@@ -828,4 +825,326 @@ fn presenting_is_reproducible() {
     );
 
     assert_eq!(first.pixels, second.pixels);
+}
+
+// ---------------------------------------------------------------------------
+// Lighting
+// ---------------------------------------------------------------------------
+
+/// Renders a flat white scene, accumulates `lights`, and composites the two.
+///
+/// The scene is deliberately featureless so that every difference in the
+/// result comes from the lighting rather than from the sprites.
+fn light_scene(
+    harness: &mut Harness,
+    camera: &Camera2D,
+    lights: &[Light],
+    settings: LightSettings,
+) -> Frame {
+    harness
+        .atlas
+        .fill_layer(&harness.gpu, 0, Color::WHITE)
+        .expect("writable");
+
+    // One sprite covering the whole view, sized from the target so the frame
+    // is entirely scene and every difference in it comes from the lighting.
+    let width = i32::try_from(harness.target.width()).expect("small");
+    let height = i32::try_from(harness.target.height()).expect("small");
+    let mut batcher = SpriteBatcher::new();
+    batcher.push(DrawSprite::new(
+        Vec2::from_ints(width / 2, height),
+        Vec2::from_ints(width, height),
+        0,
+    ));
+    harness.renderer.render(
+        &harness.gpu,
+        &harness.target,
+        &harness.bind_group,
+        camera,
+        batcher.prepare(),
+        FrameSettings::default(),
+    );
+
+    let light_map = RenderTarget::new(
+        &harness.gpu,
+        harness.target.width(),
+        harness.target.height(),
+    );
+    let mut light_renderer = LightRenderer::new(&harness.gpu, RenderTarget::FORMAT);
+    light_renderer.render(&harness.gpu, &light_map, camera, lights);
+
+    let final_target = RenderTarget::new(
+        &harness.gpu,
+        harness.target.width(),
+        harness.target.height(),
+    );
+    let compositor = Compositor::new(&harness.gpu, RenderTarget::FORMAT);
+    let inputs = compositor.bind(&harness.gpu, &harness.target, &light_map);
+    compositor.composite(&harness.gpu, final_target.view(), &inputs, settings);
+
+    let pixels = final_target
+        .read_pixels(&harness.gpu)
+        .expect("the composited frame should read back");
+    Frame {
+        pixels,
+        width: final_target.width(),
+        height: final_target.height(),
+    }
+}
+
+/// A camera looking at the 64x64 world the light tests draw.
+fn light_camera() -> Camera2D {
+    let mut camera = Camera2D::new(64, 64);
+    camera.position = Vec2::from_ints(32, 32);
+    camera
+}
+
+#[test]
+fn an_unlit_scene_is_dark() {
+    // The property the whole system rests on: with no ambient and no lights,
+    // a white sprite renders black.
+    let Some(mut harness) = Harness::new(64, 64, 1) else {
+        return;
+    };
+    let frame = light_scene(
+        &mut harness,
+        &light_camera(),
+        &[],
+        LightSettings::ambient_only(Color::BLACK),
+    );
+    assert_eq!(frame.at(32, 32)[0], 0, "an unlit scene should be black");
+}
+
+#[test]
+fn ambient_light_lifts_the_whole_scene() {
+    let Some(mut harness) = Harness::new(64, 64, 1) else {
+        return;
+    };
+    let frame = light_scene(
+        &mut harness,
+        &light_camera(),
+        &[],
+        LightSettings::ambient_only(Color::rgb(0.5, 0.5, 0.5)),
+    );
+    let centre = frame.at(32, 32);
+    let corner = frame.at(2, 2);
+    assert!(centre[0] > 100 && centre[0] < 160, "centre {centre:?}");
+    assert_eq!(centre, corner, "ambient light should be even");
+}
+
+#[test]
+fn a_point_light_is_brightest_at_its_centre() {
+    let Some(mut harness) = Harness::new(64, 64, 1) else {
+        return;
+    };
+    let light = Light::point(Vec2::from_ints(32, 32), fx(24), Color::WHITE);
+    let frame = light_scene(
+        &mut harness,
+        &light_camera(),
+        &[light],
+        LightSettings::ambient_only(Color::BLACK),
+    );
+
+    let centre = frame.at(32, 32)[0];
+    let middle = frame.at(32, 44)[0];
+    let edge = frame.at(32, 56)[0];
+    assert!(
+        centre > middle,
+        "centre {centre} should beat middle {middle}"
+    );
+    assert!(middle > edge, "middle {middle} should beat edge {edge}");
+    assert!(centre > 200, "the centre should be near full brightness");
+}
+
+#[test]
+fn a_point_light_does_not_reach_past_its_radius() {
+    // Otherwise a light's cost and its visible effect stop matching, and
+    // culling by radius would produce visible popping.
+    let Some(mut harness) = Harness::new(64, 64, 1) else {
+        return;
+    };
+    let light = Light::point(Vec2::from_ints(16, 16), fx(12), Color::WHITE);
+    let frame = light_scene(
+        &mut harness,
+        &light_camera(),
+        &[light],
+        LightSettings::ambient_only(Color::BLACK),
+    );
+    assert_eq!(frame.at(56, 56)[0], 0, "far corner should be untouched");
+}
+
+#[test]
+fn a_coloured_light_tints_what_it_lights() {
+    let Some(mut harness) = Harness::new(64, 64, 1) else {
+        return;
+    };
+    // A warm lantern: strong red, weak blue.
+    let light = Light::point(Vec2::from_ints(32, 32), fx(24), Color::rgb(1.0, 0.6, 0.2));
+    let frame = light_scene(
+        &mut harness,
+        &light_camera(),
+        &[light],
+        LightSettings::ambient_only(Color::BLACK),
+    );
+    let lit = frame.at(32, 32);
+    assert!(lit[0] > lit[1] && lit[1] > lit[2], "warm tint: {lit:?}");
+}
+
+#[test]
+fn two_lights_add_where_they_overlap() {
+    // Additive blending is what makes light behave like light rather than
+    // like a decal.
+    let Some(mut harness) = Harness::new(64, 64, 1) else {
+        return;
+    };
+    let camera = light_camera();
+    let dim = Color::rgb(0.4, 0.4, 0.4);
+
+    let one = light_scene(
+        &mut harness,
+        &camera,
+        &[Light::point(Vec2::from_ints(32, 32), fx(24), dim).with_falloff(1.0)],
+        LightSettings::ambient_only(Color::BLACK),
+    )
+    .at(32, 32)[0];
+
+    let both = light_scene(
+        &mut harness,
+        &camera,
+        &[
+            Light::point(Vec2::from_ints(32, 32), fx(24), dim).with_falloff(1.0),
+            Light::point(Vec2::from_ints(32, 32), fx(24), dim).with_falloff(1.0),
+        ],
+        LightSettings::ambient_only(Color::BLACK),
+    )
+    .at(32, 32)[0];
+
+    assert!(both > one, "two lights ({both}) should beat one ({one})");
+}
+
+#[test]
+fn illumination_saturates_rather_than_wrapping() {
+    // A stack of overlapping lanterns must clamp, not overflow into a dark
+    // band, which is what an unclamped multiply would do.
+    let Some(mut harness) = Harness::new(64, 64, 1) else {
+        return;
+    };
+    let lights: Vec<Light> = (0..8)
+        .map(|_| Light::point(Vec2::from_ints(32, 32), fx(30), Color::WHITE))
+        .collect();
+    let frame = light_scene(
+        &mut harness,
+        &light_camera(),
+        &lights,
+        LightSettings::ambient_only(Color::BLACK),
+    );
+    assert!(
+        frame.at(32, 32)[0] > 240,
+        "should be saturated, not wrapped"
+    );
+}
+
+#[test]
+fn a_spot_light_only_lights_its_cone() {
+    let Some(mut harness) = Harness::new(64, 64, 1) else {
+        return;
+    };
+    // Pointing straight down (+Y in world space), a narrow cone.
+    let light = Light::spot(
+        Vec2::from_ints(32, 20),
+        fx(36),
+        Color::WHITE,
+        Fx::PI / fx(2),
+        Fx::PI / fx(8),
+    );
+    let frame = light_scene(
+        &mut harness,
+        &light_camera(),
+        &[light],
+        LightSettings::ambient_only(Color::BLACK),
+    );
+
+    // Sampled near the light rather than at the far end of its reach: the
+    // default falloff is quadratic, so a point at half the radius is already
+    // down to a fifth of full brightness and says less about the cone than
+    // about the falloff curve.
+    let inside = frame.at(32, 30)[0];
+    let far_inside = frame.at(32, 44)[0];
+    let outside = frame.at(4, 20)[0];
+
+    assert!(inside > 100, "inside the cone should be well lit: {inside}");
+    assert_eq!(outside, 0, "outside the cone should be dark");
+    assert!(
+        far_inside > 0 && far_inside < inside,
+        "the cone should still fall off with distance: {far_inside} vs {inside}"
+    );
+}
+
+#[test]
+fn lighting_is_reproducible() {
+    let Some(mut harness) = Harness::new(64, 64, 1) else {
+        return;
+    };
+    let camera = light_camera();
+    let lights = [
+        Light::point(Vec2::from_ints(20, 20), fx(18), Color::rgb(1.0, 0.7, 0.3)),
+        Light::point(Vec2::from_ints(44, 40), fx(14), Color::rgb(0.4, 0.6, 1.0)),
+    ];
+    let settings = LightSettings {
+        ambient: Color::rgb(0.2, 0.2, 0.3),
+        light_scale: 1.0,
+        maximum: 1.0,
+    };
+    let first = light_scene(&mut harness, &camera, &lights, settings);
+    let second = light_scene(&mut harness, &camera, &lights, settings);
+    assert_eq!(first.pixels, second.pixels);
+}
+
+#[test]
+fn more_lights_than_the_buffer_holds_still_render() {
+    // The instance buffer has to grow; dropping the overflow would silently
+    // darken a busy scene.
+    let Some(mut harness) = Harness::new(64, 64, 1) else {
+        return;
+    };
+    let lights: Vec<Light> = (0..200)
+        .map(|index| {
+            Light::point(
+                Vec2::from_ints(32, 32),
+                fx(20) + fx(index % 4),
+                Color::rgb(0.05, 0.05, 0.05),
+            )
+        })
+        .collect();
+    let frame = light_scene(
+        &mut harness,
+        &light_camera(),
+        &lights,
+        LightSettings::ambient_only(Color::BLACK),
+    );
+    assert!(frame.at(32, 32)[0] > 100, "200 lights should be visible");
+}
+
+#[test]
+#[ignore = "writes a PNG artifact rather than asserting"]
+fn render_lit_scene_to_png() {
+    let Some(mut harness) = Harness::new(128, 128, 1) else {
+        return;
+    };
+    let mut camera = Camera2D::new(128, 128);
+    camera.position = Vec2::from_ints(64, 64);
+    let frame = light_scene(
+        &mut harness,
+        &camera,
+        &[
+            Light::point(Vec2::from_ints(40, 50), fx(40), Color::rgb(1.0, 0.75, 0.4)),
+            Light::point(Vec2::from_ints(90, 80), fx(30), Color::rgb(0.4, 0.6, 1.0)),
+        ],
+        LightSettings {
+            ambient: Color::rgb(0.15, 0.16, 0.28),
+            light_scale: 1.0,
+            maximum: 1.0,
+        },
+    );
+    frame.write_png(std::path::Path::new("target/golden-diffs/lit-scene.png"));
 }

@@ -69,6 +69,7 @@
 
 pub mod camera;
 pub mod gpu;
+pub mod lighting;
 pub mod present;
 pub mod renderer;
 pub mod sprite;
@@ -77,6 +78,7 @@ pub mod texture;
 
 pub use camera::Camera2D;
 pub use gpu::{GpuContext, GpuError};
+pub use lighting::{Compositor, Cone, Light, LightRenderer, LightSettings};
 pub use present::Presenter;
 pub use renderer::{
     integer_scale, letterbox, window_to_internal, FrameSettings, RenderTarget, SpriteRenderer,

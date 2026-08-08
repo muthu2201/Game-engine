@@ -199,17 +199,49 @@ impl std::fmt::Debug for RenderTarget {
 /// argument list gets wrong silently.
 #[derive(Clone, Copy, Debug)]
 pub struct FrameSettings {
-    /// Background colour the target is cleared to.
-    pub clear: Color,
+    /// Background colour the target is cleared to, or `None` to draw over
+    /// whatever is already there.
+    ///
+    /// Loading rather than clearing is what lets a second pass add to a
+    /// finished image — an unlit interface over a lit world, for instance,
+    /// which is the only way to keep the HUD out of the lighting.
+    pub clear: Option<Color>,
     /// Multiplies every sprite's tint. The day/night cycle and weather are
     /// applied here, in one place, rather than per sprite.
     pub global_tint: Color,
 }
 
+impl FrameSettings {
+    /// Settings that clear the target to a colour first.
+    #[must_use]
+    pub const fn clearing(clear: Color) -> FrameSettings {
+        FrameSettings {
+            clear: Some(clear),
+            global_tint: Color::WHITE,
+        }
+    }
+
+    /// Settings that draw over whatever the target already holds.
+    #[must_use]
+    pub const fn loading() -> FrameSettings {
+        FrameSettings {
+            clear: None,
+            global_tint: Color::WHITE,
+        }
+    }
+
+    /// Returns these settings with a global tint applied to every sprite.
+    #[must_use]
+    pub const fn tinted(mut self, tint: Color) -> FrameSettings {
+        self.global_tint = tint;
+        self
+    }
+}
+
 impl Default for FrameSettings {
     fn default() -> FrameSettings {
         FrameSettings {
-            clear: Color::BLACK,
+            clear: Some(Color::BLACK),
             global_tint: Color::WHITE,
         }
     }
@@ -437,8 +469,8 @@ impl SpriteRenderer {
 
     /// Renders `instances` into `target`.
     ///
-    /// `clear` is the background colour; `global_tint` multiplies every sprite,
-    /// which is how the day/night cycle and weather are applied in one place.
+    /// `settings.clear` is the background colour, or `None` to draw over what
+    /// is already in the target; `global_tint` multiplies every sprite.
     pub fn render(
         &mut self,
         gpu: &GpuContext,
@@ -474,12 +506,15 @@ impl SpriteRenderer {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: f64::from(settings.clear.r),
-                            g: f64::from(settings.clear.g),
-                            b: f64::from(settings.clear.b),
-                            a: f64::from(settings.clear.a),
-                        }),
+                        load: match settings.clear {
+                            Some(colour) => wgpu::LoadOp::Clear(wgpu::Color {
+                                r: f64::from(colour.r),
+                                g: f64::from(colour.g),
+                                b: f64::from(colour.b),
+                                a: f64::from(colour.a),
+                            }),
+                            None => wgpu::LoadOp::Load,
+                        },
                         store: wgpu::StoreOp::Store,
                     },
                 })],

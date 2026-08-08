@@ -31,7 +31,10 @@ use verdant_procgen_art::{
     font, generate_character, generate_crop, generate_item_icon, generate_terrain_tile,
     generate_tree, Canvas, CharacterStyle, Palette, PaletteIndex, Rgba, WALK_FRAMES,
 };
-use verdant_render_2d::{Camera2D, Color, DrawSprite, SpriteBatcher, TextureArray};
+use verdant_render_2d::{
+    Camera2D, Color, Compositor, DrawSprite, Light, LightRenderer, LightSettings, SpriteBatcher,
+    TextureArray,
+};
 use verdant_tilemap::TileId;
 
 /// Width of the frame the game renders into, in pixels.
@@ -824,12 +827,18 @@ impl Panel {
 /// regrown sixty times a second.
 #[derive(Debug)]
 pub struct Scene {
+    /// The world, which the lighting pass acts on.
     batcher: SpriteBatcher,
+    /// The interface, drawn after lighting and therefore never dimmed by it.
+    ///
+    /// A separate batch rather than a compensating tint: the HUD is not part
+    /// of the world, and the honest way to keep it readable at midnight is to
+    /// draw it outside the lighting rather than to undo the lighting on it.
+    hud: SpriteBatcher,
+    /// Lights gathered from the world this frame.
+    lights: Vec<Light>,
     /// The camera, kept across frames so its smoothing has history.
     pub camera: Camera2D,
-    /// What HUD colours must be multiplied by to survive the frame's global
-    /// tint. Recomputed each frame from the ambient light.
-    hud_gain: Color,
     /// The on-screen control layout, drawn when `show_touch_controls` is set.
     pub touch: TouchLayout,
     /// Whether to draw the on-screen controls.
@@ -856,8 +865,9 @@ impl Scene {
     pub fn new() -> Scene {
         Scene {
             batcher: SpriteBatcher::new(),
+            hud: SpriteBatcher::new(),
+            lights: Vec::new(),
             camera: Camera2D::new(INTERNAL_WIDTH, INTERNAL_HEIGHT),
-            hud_gain: Color::WHITE,
             touch: touch_layout(),
             show_touch_controls: cfg!(target_os = "android"),
             touch_thumb: None,
@@ -891,11 +901,8 @@ impl Scene {
     /// Builds this frame and returns the sorted sprites.
     pub fn build(&mut self, game: &Game, art: &Art) -> &mut SpriteBatcher {
         self.batcher.clear();
-        // The world is tinted by the time of day, but the interface is not
-        // part of the world: a hotbar that goes unreadable at midnight is a
-        // bug, not atmosphere. Pre-dividing by the ambient light cancels the
-        // global tint exactly for HUD sprites and nothing else.
-        self.hud_gain = compensation(game.calendar.ambient_light());
+        self.hud.clear();
+        self.collect_lights(game);
         self.draw_world(game, art);
         self.draw_farm(game, art);
         self.draw_characters(game, art);
@@ -903,10 +910,67 @@ impl Scene {
         &mut self.batcher
     }
 
-    /// The sprites built by the last call to [`Scene::build`].
+    /// The world sprites built by the last call to [`Scene::build`].
     #[must_use]
     pub fn sprites(&self) -> &[DrawSprite] {
         self.batcher.sprites()
+    }
+
+    /// The interface sprites built by the last call to [`Scene::build`].
+    #[must_use]
+    pub fn hud_sprites(&self) -> &[DrawSprite] {
+        self.hud.sprites()
+    }
+
+    /// The lights gathered by the last call to [`Scene::build`].
+    #[must_use]
+    pub fn lights(&self) -> &[Light] {
+        &self.lights
+    }
+
+    /// The interface batch, for the pass that draws it after lighting.
+    pub fn hud_batch(&mut self) -> &mut SpriteBatcher {
+        &mut self.hud
+    }
+
+    /// Gathers the lights the world is casting right now.
+    ///
+    /// Nothing is lit in daylight: the ambient term already covers the scene,
+    /// and a lantern that glows at noon reads as a bug rather than as detail.
+    /// Their strength rises as the ambient light falls, so lights fade in
+    /// through dusk instead of switching on.
+    fn collect_lights(&mut self, game: &Game) {
+        self.lights.clear();
+
+        let ambient = game.calendar.ambient_light();
+        // How dark it is, from the brightest channel: a warm dusk still has a
+        // strong red, and darkness should follow the brightest light present
+        // rather than an average that dusk would exaggerate.
+        let brightest = ambient.r.max(ambient.g).max(ambient.b);
+        let darkness = (1.0 - brightest).clamp(0.0, 1.0);
+        if darkness <= 0.02 {
+            return;
+        }
+
+        let lantern = Color::from_srgb_hex(0xFF_C8_6E);
+        let window = Color::from_srgb_hex(0xFF_D8_8A);
+
+        // Windows in the village, and the farmhouse.
+        let mut lit_buildings: Vec<IVec2> = game.layout.homes.clone();
+        lit_buildings.push(game.layout.shop_door);
+        lit_buildings.push(game.layout.farmhouse_door);
+        for cell in lit_buildings {
+            self.lights.push(
+                Light::point(tile_anchor(cell), TILE_SIZE * Fx::from_num(4), window)
+                    .with_intensity(darkness * 0.85),
+            );
+        }
+
+        // The player carries a lantern, so walking home in the dark works.
+        self.lights.push(
+            Light::point(game.player.position, TILE_SIZE * Fx::from_num(5), lantern)
+                .with_intensity(darkness),
+        );
     }
 
     /// Queues one sprite for an atlas region at a world position.
@@ -1036,9 +1100,8 @@ impl Scene {
             height,
         } = panel;
         let page = art.atlas.page_size();
-        let color = self.lit(color);
         let position = self.screen_to_world(Vec2::from_ints(x, y + height));
-        self.batcher.push(
+        self.hud.push(
             DrawSprite::new(position, Vec2::from_ints(width, height), art.white.layer)
                 .with_uv(art.white.uv(page))
                 .anchored(Vec2::new(Fx::ZERO, Fx::ONE))
@@ -1050,7 +1113,6 @@ impl Scene {
     /// Draws a string in screen space, one sprite per glyph.
     fn text(&mut self, art: &Art, x: i32, y: i32, string: &str, color: Color, z: i32) {
         let page = art.atlas.page_size();
-        let color = self.lit(color);
         let advance = i32::try_from(font::GLYPH_ADVANCE).unwrap_or(6);
         let height = i32::try_from(font::GLYPH_HEIGHT).unwrap_or(7);
         for (index, ch) in string.chars().enumerate() {
@@ -1060,7 +1122,7 @@ impl Scene {
             let region = art.glyph(ch);
             let offset = x + i32::try_from(index).unwrap_or(0) * advance;
             let position = self.screen_to_world(Vec2::from_ints(offset, y + height));
-            self.batcher.push(
+            self.hud.push(
                 DrawSprite::new(position, region.size(), region.layer)
                     .with_uv(region.uv(page))
                     .anchored(Vec2::new(Fx::ZERO, Fx::ONE))
@@ -1077,16 +1139,6 @@ impl Scene {
     fn shadowed_text(&mut self, art: &Art, x: i32, y: i32, string: &str, color: Color, z: i32) {
         self.text(art, x + 1, y + 1, string, Color::BLACK.with_alpha(0.65), z);
         self.text(art, x, y, string, color, z);
-    }
-
-    /// Applies the HUD's light compensation to a colour.
-    fn lit(&self, color: Color) -> Color {
-        Color::new(
-            color.r * self.hud_gain.r,
-            color.g * self.hud_gain.g,
-            color.b * self.hud_gain.b,
-            color.a,
-        )
     }
 
     /// Converts a HUD pixel coordinate into the world position that lands on
@@ -1362,12 +1414,12 @@ impl Scene {
             if let Some(region) = art.item(stack.item) {
                 let page = art.atlas.page_size();
                 let position = self.screen_to_world(Vec2::from_ints(left + 3, y + slot - 3));
-                self.batcher.push(
+                self.hud.push(
                     DrawSprite::new(position, region.size(), region.layer)
                         .with_uv(region.uv(page))
                         .anchored(Vec2::new(Fx::ZERO, Fx::ONE))
                         .at_z(Z_HUD_TEXT)
-                        .tinted(self.hud_gain),
+                        .tinted(Color::WHITE),
                 );
             }
             if stack.count > 1 {
@@ -1583,32 +1635,31 @@ fn describe_farm(action: crate::farm::FarmAction) -> Option<String> {
     }
 }
 
-/// The multiplier that cancels an ambient tint.
+/// The clear colour for the world pass.
 ///
-/// Clamped rather than a plain reciprocal: an ambient channel near zero would
-/// otherwise ask for an enormous gain, and the shader would clip it anyway.
+/// The world is drawn at full brightness and darkened by the lighting pass, so
+/// this is only what shows outside the map. It follows the ambient light so
+/// the edge of the world reads as distance rather than as a black void.
 #[must_use]
-pub fn compensation(ambient: Color) -> Color {
-    /// The dimmest channel that still gets exact compensation.
-    const FLOOR: f32 = 0.2;
-    /// Never brighten past this, so a HUD colour stays a colour.
-    const CEILING: f32 = 4.0;
-    let gain = |channel: f32| (1.0 / channel.max(FLOOR)).min(CEILING);
-    Color::new(gain(ambient.r), gain(ambient.g), gain(ambient.b), 1.0)
+pub fn frame_settings(game: &Game) -> verdant_render_2d::FrameSettings {
+    let ambient = game.calendar.ambient_light();
+    verdant_render_2d::FrameSettings::clearing(
+        Color::from_srgb_hex(0x10_18_28).scale_rgb(0.5 + ambient.r * 0.5),
+    )
 }
 
-/// The frame-wide tint and clear colour for the current conditions.
+/// How the composite should light this frame.
 ///
 /// Time of day and weather reach the screen through exactly one value, which
 /// is why a scene never has to know what time it is.
 #[must_use]
-pub fn frame_settings(game: &Game) -> verdant_render_2d::FrameSettings {
-    let ambient = game.calendar.ambient_light();
-    verdant_render_2d::FrameSettings {
-        // The clear colour is the ambient tint applied to a deep blue, so the
-        // area outside the map reads as distance rather than as a black void.
-        clear: Color::from_srgb_hex(0x10_18_28).scale_rgb(0.5 + ambient.r * 0.5),
-        global_tint: ambient,
+pub fn light_settings(game: &Game) -> LightSettings {
+    LightSettings {
+        ambient: game.calendar.ambient_light(),
+        light_scale: 1.0,
+        // Slightly above one so a lantern can lift its immediate surroundings
+        // past the ambient level rather than merely matching it.
+        maximum: 1.15,
     }
 }
 
@@ -1632,9 +1683,17 @@ pub const fn has_precipitation(weather: Weather) -> bool {
 pub struct GameRenderer {
     gpu: verdant_render_2d::GpuContext,
     renderer: verdant_render_2d::SpriteRenderer,
+    lights: LightRenderer,
+    compositor: Compositor,
     presenter: verdant_render_2d::Presenter,
     atlas_bind_group: wgpu::BindGroup,
+    composite_bind_group: wgpu::BindGroup,
     source_bind_group: wgpu::BindGroup,
+    /// The world, drawn at full brightness.
+    scene: verdant_render_2d::RenderTarget,
+    /// Every light, accumulated additively.
+    light_map: verdant_render_2d::RenderTarget,
+    /// The lit world, and then the HUD on top of it.
     target: verdant_render_2d::RenderTarget,
     /// Kept alive because the bind group borrows it.
     _atlas: TextureArray,
@@ -1654,16 +1713,30 @@ impl GameRenderer {
         let atlas = art.atlas().upload(gpu)?;
         let renderer = verdant_render_2d::SpriteRenderer::new(gpu);
         let atlas_bind_group = renderer.bind_atlas(gpu, &atlas);
+
+        let format = verdant_render_2d::RenderTarget::FORMAT;
+        let scene = verdant_render_2d::RenderTarget::new(gpu, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+        let light_map = verdant_render_2d::RenderTarget::new(gpu, INTERNAL_WIDTH, INTERNAL_HEIGHT);
         let target = verdant_render_2d::RenderTarget::new(gpu, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+
+        let lights = LightRenderer::new(gpu, format);
+        let compositor = Compositor::new(gpu, format);
+        let composite_bind_group = compositor.bind(gpu, &scene, &light_map);
+
         let presenter = verdant_render_2d::Presenter::new(gpu, surface_format);
         let source_bind_group = presenter.bind_source(gpu, &target);
 
         Ok(GameRenderer {
             gpu: gpu.clone(),
             renderer,
+            lights,
+            compositor,
             presenter,
             atlas_bind_group,
+            composite_bind_group,
             source_bind_group,
+            scene,
+            light_map,
             target,
             _atlas: atlas,
         })
@@ -1679,17 +1752,43 @@ impl GameRenderer {
         destination: &wgpu::TextureView,
         destination_size: (u32, u32),
     ) {
-        let settings = frame_settings(game);
         let camera = scene.camera;
-        let instances = scene.build(game, art).prepare();
+
+        // 1. The world, at full brightness, into its own target.
+        let world = scene.build(game, art).prepare();
+        self.renderer.render(
+            &self.gpu,
+            &self.scene,
+            &self.atlas_bind_group,
+            &camera,
+            world,
+            frame_settings(game),
+        );
+
+        // 2. Every light, accumulated additively.
+        self.lights
+            .render(&self.gpu, &self.light_map, &camera, scene.lights());
+
+        // 3. Scene times illumination.
+        self.compositor.composite(
+            &self.gpu,
+            self.target.view(),
+            &self.composite_bind_group,
+            light_settings(game),
+        );
+
+        // 4. The interface, over the lit world and untouched by it. Loading
+        //    rather than clearing is what keeps the composited frame beneath.
+        let hud = scene.hud_batch().prepare();
         self.renderer.render(
             &self.gpu,
             &self.target,
             &self.atlas_bind_group,
             &camera,
-            instances,
-            settings,
+            hud,
+            verdant_render_2d::FrameSettings::loading(),
         );
+
         self.presenter.present(
             &self.gpu,
             destination,
@@ -1918,17 +2017,10 @@ mod tests {
         scene.snap_to(&game);
         scene.build(&game, &art).prepare();
 
-        let world_top = scene
-            .sprites()
-            .iter()
-            .filter(|sprite| sprite.z < Z_HUD_PANEL)
-            .count();
-        let hud = scene
-            .sprites()
-            .iter()
-            .filter(|sprite| sprite.z >= Z_HUD_PANEL)
-            .count();
-        assert!(world_top > 0 && hud > 0, "both layers should be present");
+        // The two live in separate batches so the HUD can be drawn after the
+        // lighting composite rather than through it.
+        assert!(!scene.sprites().is_empty(), "the world should be drawn");
+        assert!(!scene.hud_sprites().is_empty(), "the HUD should be drawn");
     }
 
     #[test]
@@ -2064,10 +2156,10 @@ mod tests {
     #[test]
     fn night_darkens_the_frame() {
         let (mut game, _) = fixture();
-        let noon = frame_settings(&game).global_tint;
+        let noon = light_settings(&game).ambient;
         // Wind the clock to late evening.
         game.calendar.minute = 23 * 60;
-        let night = frame_settings(&game).global_tint;
+        let night = light_settings(&game).ambient;
         assert!(
             night.r < noon.r && night.b <= noon.b,
             "evening should be darker than midday: {night:?} vs {noon:?}"
@@ -2176,7 +2268,7 @@ mod tests {
         scene.build(&game, &art);
 
         let ones = scene
-            .sprites()
+            .hud_sprites()
             .iter()
             .filter(|sprite| sprite.uv_rect == art.glyph('1').uv(ATLAS_PAGE))
             .count();
@@ -2192,7 +2284,7 @@ mod tests {
         scene.snap_to(&game);
         scene.build(&game, &art);
         let first: Vec<_> = scene
-            .sprites()
+            .hud_sprites()
             .iter()
             .filter(|sprite| sprite.z == Z_HUD_PANEL)
             .map(|sprite| sprite.color.to_array())
@@ -2201,7 +2293,7 @@ mod tests {
         game.player.inventory.select(2);
         scene.build(&game, &art);
         let second: Vec<_> = scene
-            .sprites()
+            .hud_sprites()
             .iter()
             .filter(|sprite| sprite.z == Z_HUD_PANEL)
             .map(|sprite| sprite.color.to_array())
@@ -2262,59 +2354,123 @@ mod tests {
     }
 
     #[test]
-    fn the_hud_stays_readable_at_night() {
-        // Multiplying the compensated colour by the ambient tint must land
-        // back near the colour the HUD asked for.
+    fn the_hud_is_drawn_outside_the_lighting() {
+        // The HUD is not part of the world. It used to be tinted by the time
+        // of day and then divided back out again; drawing it in its own pass
+        // after the composite is both simpler and actually correct.
         let (mut game, art) = fixture();
         game.calendar.minute = 23 * 60;
-        let ambient = game.calendar.ambient_light();
-
         let mut scene = Scene::new();
         scene.snap_to(&game);
         scene.build(&game, &art);
 
-        let asked = Color::from_srgb_hex(0xF4_E8_C8);
-        let drawn = scene.lit(asked);
-        let on_screen = drawn.r * ambient.r;
+        assert!(!scene.hud_sprites().is_empty(), "the HUD should exist");
+        for sprite in scene.hud_sprites() {
+            assert!(
+                sprite.z >= Z_HUD_PANEL,
+                "a world sprite leaked into the HUD batch at z {}",
+                sprite.z
+            );
+        }
+        for sprite in scene.sprites() {
+            assert!(
+                sprite.z < Z_HUD_PANEL,
+                "a HUD sprite leaked into the world batch at z {}",
+                sprite.z
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_is_lit_in_daylight() {
+        // A lantern glowing at noon reads as a bug rather than as detail.
+        let (mut game, art) = fixture();
+        game.calendar.minute = 12 * 60;
+        let mut scene = Scene::new();
+        scene.snap_to(&game);
+        scene.build(&game, &art);
+        assert!(scene.lights().is_empty(), "daylight needs no lights");
+    }
+
+    #[test]
+    fn the_village_and_the_player_light_up_at_night() {
+        let (mut game, art) = fixture();
+        game.calendar.minute = 23 * 60;
+        let mut scene = Scene::new();
+        scene.snap_to(&game);
+        scene.build(&game, &art);
+
+        let lights = scene.lights();
+        // One per home, the shop, the farmhouse, and the player's lantern.
+        let expected = game.layout.homes.len() + 3;
+        assert_eq!(lights.len(), expected, "got {lights:?}");
         assert!(
-            on_screen > asked.r * 0.9,
-            "HUD text dimmed to {on_screen} from {}",
-            asked.r
+            lights
+                .iter()
+                .any(|light| light.position == game.player.position),
+            "the player should carry a lantern"
         );
     }
 
     #[test]
-    fn compensation_never_runs_away_on_a_dark_channel() {
-        let gain = compensation(Color::new(0.0, 0.0, 0.0, 1.0));
-        assert!(gain.r.is_finite() && gain.r <= 4.0);
-        // And full daylight needs no compensation at all.
-        let none = compensation(Color::WHITE);
-        assert!((none.r - 1.0).abs() < 1e-6);
+    fn lights_fade_in_through_dusk_rather_than_switching_on() {
+        let (mut game, art) = fixture();
+        let mut scene = Scene::new();
+        scene.snap_to(&game);
+
+        game.calendar.minute = 19 * 60;
+        scene.build(&game, &art);
+        let dusk = scene
+            .lights()
+            .iter()
+            .map(|light| light.intensity)
+            .fold(0.0f32, f32::max);
+
+        game.calendar.minute = 23 * 60;
+        scene.build(&game, &art);
+        let night = scene
+            .lights()
+            .iter()
+            .map(|light| light.intensity)
+            .fold(0.0f32, f32::max);
+
+        assert!(dusk > 0.0, "dusk should already be lighting up");
+        assert!(night > dusk, "night ({night}) should beat dusk ({dusk})");
     }
 
     #[test]
-    fn the_world_is_not_light_compensated() {
-        // Only the HUD cancels the tint; a world sprite that did would defeat
-        // the day/night cycle entirely.
+    fn every_light_has_real_reach_and_brightness() {
+        // A light with no radius or no intensity costs a draw and shows
+        // nothing, and would be culled by the renderer anyway.
         let (mut game, art) = fixture();
         game.calendar.minute = 23 * 60;
         let mut scene = Scene::new();
         scene.snap_to(&game);
         scene.build(&game, &art);
-
-        let world_tints: Vec<[f32; 4]> = scene
-            .sprites()
-            .iter()
-            .filter(|sprite| sprite.z == Z_GROUND)
-            .map(|sprite| sprite.color.to_array())
-            .collect();
-        assert!(!world_tints.is_empty());
-        for tint in world_tints {
-            assert!(
-                (tint[0] - 1.0).abs() < 1e-6,
-                "ground should be drawn untinted: {tint:?}"
-            );
+        for light in scene.lights() {
+            assert!(light.radius > Fx::ZERO, "{light:?} has no reach");
+            assert!(light.intensity > 0.0, "{light:?} is not lit");
         }
+    }
+
+    #[test]
+    fn the_ambient_light_drives_the_composite() {
+        let (mut game, _) = fixture();
+        game.calendar.minute = 12 * 60;
+        let noon = light_settings(&game);
+        game.calendar.minute = 23 * 60;
+        let night = light_settings(&game);
+        assert!(night.ambient.r < noon.ambient.r);
+        // Not `is_fully_lit`: a season grades the whole day, so spring tints
+        // blue to 0.96 even at noon. What matters is that the brightest
+        // channel is at full strength, since that is what decides whether any
+        // light is emitted.
+        let brightest = |colour: Color| colour.r.max(colour.g).max(colour.b);
+        assert!(
+            brightest(noon.ambient) >= 1.0,
+            "noon should be at full strength"
+        );
+        assert!(brightest(night.ambient) < 0.7, "night should be well down");
     }
 
     #[test]
@@ -2424,7 +2580,7 @@ mod tests {
         scene.build(&game, &art);
 
         let controls = scene
-            .sprites()
+            .hud_sprites()
             .iter()
             .filter(|sprite| sprite.z >= Z_TOUCH)
             .count();
@@ -2461,7 +2617,7 @@ mod tests {
         scene.observe_touch(&touch);
         scene.build(&game, &art);
         let with_finger: Vec<Vec2> = scene
-            .sprites()
+            .hud_sprites()
             .iter()
             .filter(|s| s.z >= Z_TOUCH)
             .map(|s| s.position)
@@ -2471,7 +2627,7 @@ mod tests {
         scene.observe_touch(&touch);
         scene.build(&game, &art);
         let at_rest: Vec<Vec2> = scene
-            .sprites()
+            .hud_sprites()
             .iter()
             .filter(|s| s.z >= Z_TOUCH)
             .map(|s| s.position)
@@ -2515,7 +2671,7 @@ mod tests {
             i32::try_from(INTERNAL_WIDTH).expect("small") + 16,
             i32::try_from(INTERNAL_HEIGHT).expect("small") + 16,
         );
-        for sprite in scene.sprites().iter().filter(|s| s.z >= Z_TOUCH) {
+        for sprite in scene.hud_sprites().iter().filter(|s| s.z >= Z_TOUCH) {
             let screen = scene.camera.world_to_screen(sprite.position);
             assert!(
                 visible.contains_point(screen),
@@ -2536,7 +2692,7 @@ mod tests {
 
         scene.build(&game, &art);
         let released: Vec<[f32; 4]> = scene
-            .sprites()
+            .hud_sprites()
             .iter()
             .filter(|s| s.z >= Z_TOUCH)
             .map(|s| s.color.to_array())
@@ -2554,7 +2710,7 @@ mod tests {
         scene.observe_touch(&touch);
         scene.build(&game, &art);
         let held: Vec<[f32; 4]> = scene
-            .sprites()
+            .hud_sprites()
             .iter()
             .filter(|s| s.z >= Z_TOUCH)
             .map(|s| s.color.to_array())
