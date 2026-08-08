@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/core-math", "crates/core-ecs", "crates/physics-2d"]
+members = [
+    "crates/core-math",
+    "crates/core-ecs",
+    "crates/physics-2d",
+    "crates/tilemap",
+    "crates/input",
+    "crates/save",
+]
 
 [workspace.package]
 version = "0.1.0"

@@ -1,0 +1,17 @@
+[package]
+name = "verdant-tilemap"
+description = "Tile maps, autotiling, grid pathfinding and wave function collapse for the Verdant engine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+verdant-core-math = { workspace = true }
+verdant-physics-2d = { workspace = true }
+serde = { workspace = true }
+
+[lints]
+workspace = true

@@ -108,12 +108,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "verdant-input"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "verdant-core-math",
+]
+
+[[package]]
 name = "verdant-physics-2d"
 version = "0.1.0"
 dependencies = [
  "serde",
  "verdant-core-ecs",
  "verdant-core-math",
+]
+
+[[package]]
+name = "verdant-save"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "verdant-core-ecs",
+]
+
+[[package]]
+name = "verdant-tilemap"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "verdant-core-math",
+ "verdant-physics-2d",
 ]
 
 [[package]]
