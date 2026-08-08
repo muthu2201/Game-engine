@@ -3,7 +3,7 @@
 //! # Layout
 //!
 //! Entities that carry exactly the same set of table components share an
-//! [`Archetype`]. An archetype stores its entities in one `Vec<Entity>` and each
+//! archetype. An archetype stores its entities in one `Vec<Entity>` and each
 //! component type in its own `Vec<T>` — structure of arrays, not array of
 //! structures — so a system that reads only `Position` walks a tightly packed
 //! run of positions rather than striding over unrelated fields.

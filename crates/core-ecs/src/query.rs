@@ -3,7 +3,7 @@
 //! # How a query runs
 //!
 //! 1. The requested component types are resolved to [`ComponentId`]s.
-//! 2. [`Archetypes::matching`] returns every archetype holding all of them (and
+//! 2. The archetype index returns every archetype holding all of them (and
 //!    none of the excluded ones), in ascending order.
 //! 3. For each matching archetype, one iterator is built per requested
 //!    component, walking that component's column directly.

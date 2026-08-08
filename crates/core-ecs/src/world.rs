@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 /// archetypes, which would invalidate a query mid-flight. The borrow checker
 /// prevents it outright: a [`Query`] holds the world mutably. When a system
 /// needs to make structural changes while iterating, it records them in a
-/// [`Commands`] buffer and the changes are applied at the next merge point.
+/// [`Commands`](crate::Commands) buffer, applied at the next merge point.
 pub struct World {
     entities: EntityAllocator,
     archetypes: Archetypes,
