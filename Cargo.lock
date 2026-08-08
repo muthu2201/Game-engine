@@ -801,6 +801,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "verdant-runtime"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "verdant-core-ecs",
+ "verdant-core-math",
+ "verdant-input",
+]
+
+[[package]]
 name = "verdant-save"
 version = "0.1.0"
 dependencies = [
