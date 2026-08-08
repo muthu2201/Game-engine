@@ -64,12 +64,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
       - uses: Swatinem/rust-cache@v2
+      - name: Confirm the software adapter is visible
+        # A missing ICD makes the renderer tests skip rather than fail, so
+        # assert the driver is actually loadable before relying on them.
+        run: vulkaninfo --summary | head -30
       - name: Run renderer tests against lavapipe
         env:
           # Pin adapter selection so a run never silently falls back to a
           # different device and invalidates the golden images.
           WGPU_BACKEND: vulkan
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
           VERDANT_HEADLESS: "1"
         run: cargo test --workspace --all-features -- --include-ignored
       - name: Upload golden-image diffs on failure

@@ -1,0 +1,23 @@
+[package]
+name = "verdant-render-2d"
+description = "Instanced sprite renderer, pixel-perfect pipeline and bitmap text for the Verdant engine, built on wgpu."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+verdant-core-math = { workspace = true }
+verdant-physics-2d = { workspace = true }
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+pollster = { workspace = true }
+
+[dev-dependencies]
+png = { workspace = true }
+wgpu = { workspace = true }
+
+[lints]
+workspace = true

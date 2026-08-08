@@ -7,6 +7,7 @@ members = [
     "crates/tilemap",
     "crates/input",
     "crates/save",
+    "crates/render-2d",
 ]
 
 [workspace.package]
