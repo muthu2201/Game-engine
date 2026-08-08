@@ -24,6 +24,7 @@ verdant-tilemap = { workspace = true }
 verdant-input = { workspace = true }
 verdant-save = { workspace = true }
 verdant-render-2d = { workspace = true }
+wgpu = { workspace = true }
 verdant-procgen-art = { workspace = true }
 verdant-runtime = { workspace = true }
 winit = { workspace = true }
@@ -32,6 +33,9 @@ serde_json = { workspace = true }
 pollster = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true }
+
+[dev-dependencies]
+png = { workspace = true }
 
 [lints]
 workspace = true

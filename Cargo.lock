@@ -2019,6 +2019,7 @@ version = "0.1.0"
 dependencies = [
  "env_logger",
  "log",
+ "png",
  "pollster",
  "serde",
  "serde_json",
@@ -2031,6 +2032,7 @@ dependencies = [
  "verdant-runtime",
  "verdant-save",
  "verdant-tilemap",
+ "wgpu",
  "winit",
 ]
 

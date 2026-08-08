@@ -833,6 +833,7 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::calendar::Season;
     use crate::items::CropId;
 
     /// One simulation step at the standard rate.

@@ -16,11 +16,13 @@
 //! | [`farm`] | Tilled soil, planted crops and the overnight growth pass |
 //! | [`world`] | Valley and mine generation |
 //! | [`sim`] | The player, the villagers and the top-level game state |
+//! | [`render`] | Sprite generation, the atlas, the scene and the HUD |
 #![doc(html_no_source)]
 
 pub mod calendar;
 pub mod farm;
 pub mod inventory;
 pub mod items;
+pub mod render;
 pub mod sim;
 pub mod world;
