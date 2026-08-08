@@ -15,10 +15,12 @@
 //! | [`inventory`] | Carried items, the hotbar, buying, selling and cooking |
 //! | [`farm`] | Tilled soil, planted crops and the overnight growth pass |
 //! | [`world`] | Valley and mine generation |
+//! | [`sim`] | The player, the villagers and the top-level game state |
 #![doc(html_no_source)]
 
 pub mod calendar;
 pub mod farm;
 pub mod inventory;
 pub mod items;
+pub mod sim;
 pub mod world;
