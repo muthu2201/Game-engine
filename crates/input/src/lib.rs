@@ -32,6 +32,12 @@
 
 #![doc(html_no_source)]
 
+pub mod touch;
+
+pub use touch::{
+    Thumbstick, TouchButton, TouchEvent, TouchId, TouchLayout, TouchPhase, TouchState,
+};
+
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use verdant_core_math::{Fx, Vec2};
@@ -398,6 +404,18 @@ pub struct DeviceState {
     pub cursor: Vec2,
     /// Scroll wheel movement since the last tick.
     pub scroll: Fx,
+    /// Direction the on-screen thumbstick is pushing, if there is one.
+    ///
+    /// Already resolved by [`TouchState`] rather than raw touch points,
+    /// because where a control sits is a layout question and this struct is
+    /// meant to be a plain snapshot of what the player is doing.
+    pub touch_movement: Vec2,
+    /// Actions held by an on-screen button this tick.
+    ///
+    /// Kept separate from `keys` because touch buttons map to actions
+    /// directly: there is no key for them to pretend to be, and inventing one
+    /// would make rebinding show a key the device does not have.
+    pub touch_actions: Vec<Action>,
 }
 
 impl DeviceState {
@@ -485,10 +503,11 @@ impl InputState {
     /// early.
     pub fn update(&mut self, map: &InputMap, devices: &DeviceState) {
         for action in map.actions() {
-            let down = map
-                .bindings_for(action)
-                .iter()
-                .any(|binding| devices.is_binding_active(*binding, map.axis_threshold));
+            let down = devices.touch_actions.contains(&action)
+                || map
+                    .bindings_for(action)
+                    .iter()
+                    .any(|binding| devices.is_binding_active(*binding, map.axis_threshold));
 
             let state = self.states.entry(action).or_default();
             state.was_down = state.down;
@@ -593,6 +612,12 @@ impl InputState {
 /// The analogue stick wins when it is pushed past the dead zone, so a player
 /// resting a hand on the keyboard does not fight their own gamepad.
 fn resolve_movement(map: &InputMap, devices: &DeviceState) -> Vec2 {
+    // Touch first: a device with an on-screen stick has no keyboard to fall
+    // back to, and a stray key event should not fight the player's thumb.
+    if devices.touch_movement.length() > map.dead_zone {
+        return devices.touch_movement.clamp_length(Fx::ONE);
+    }
+
     let stick = Vec2::new(
         devices.axis(GamepadAxis::LeftStickX),
         devices.axis(GamepadAxis::LeftStickY),
@@ -762,6 +787,133 @@ mod tests {
             !input.consume_buffered(actions::INTERACT),
             "a press fires once"
         );
+    }
+
+    #[test]
+    fn a_touch_button_holds_its_action() {
+        // A touch button maps to an action directly; there is no key for it
+        // to pretend to be.
+        let map = InputMap::with_defaults();
+        let mut input = InputState::new();
+        let devices = DeviceState {
+            touch_actions: vec![actions::USE],
+            ..DeviceState::default()
+        };
+
+        input.update(&map, &devices);
+        assert!(input.is_down(actions::USE));
+        assert!(input.just_pressed(actions::USE));
+
+        input.update(&map, &DeviceState::default());
+        assert!(!input.is_down(actions::USE));
+        assert!(input.just_released(actions::USE));
+    }
+
+    #[test]
+    fn a_touch_button_press_is_buffered_like_any_other() {
+        // The forgiveness that makes controls feel responsive must apply to
+        // touch too — more so, since a thumb is less precise than a key.
+        let map = InputMap::with_defaults();
+        let mut input = InputState::new();
+        input.update(
+            &map,
+            &DeviceState {
+                touch_actions: vec![actions::INTERACT],
+                ..DeviceState::default()
+            },
+        );
+        input.update(&map, &DeviceState::default());
+        assert!(input.is_buffered(actions::INTERACT));
+        assert!(input.consume_buffered(actions::INTERACT));
+    }
+
+    #[test]
+    fn a_touch_button_and_a_key_are_the_same_action() {
+        let map = InputMap::with_defaults();
+        let mut by_key = InputState::new();
+        let mut by_touch = InputState::new();
+
+        by_key.update(&map, &pressing(&[KeyCode::Space]));
+        by_touch.update(
+            &map,
+            &DeviceState {
+                touch_actions: vec![actions::USE],
+                ..DeviceState::default()
+            },
+        );
+        assert_eq!(by_key.is_down(actions::USE), by_touch.is_down(actions::USE));
+    }
+
+    #[test]
+    fn the_thumbstick_drives_movement() {
+        let map = InputMap::with_defaults();
+        let mut input = InputState::new();
+        input.update(
+            &map,
+            &DeviceState {
+                touch_movement: Vec2::DOWN,
+                ..DeviceState::default()
+            },
+        );
+        assert_eq!(input.movement(), Vec2::DOWN);
+    }
+
+    #[test]
+    fn a_partly_pushed_thumbstick_walks_slowly() {
+        let map = InputMap::with_defaults();
+        let mut input = InputState::new();
+        input.update(
+            &map,
+            &DeviceState {
+                touch_movement: Vec2::new(Fx::ZERO, Fx::HALF),
+                ..DeviceState::default()
+            },
+        );
+        assert_eq!(input.movement().length(), Fx::HALF);
+    }
+
+    #[test]
+    fn a_resting_thumb_does_not_drift() {
+        // Inside the dead zone the stick must read as neutral, or the player
+        // slowly walks away while holding still.
+        let map = InputMap::with_defaults();
+        let mut input = InputState::new();
+        input.update(
+            &map,
+            &DeviceState {
+                touch_movement: Vec2::new(Fx::from_ratio(1, 200), Fx::ZERO),
+                ..DeviceState::default()
+            },
+        );
+        assert_eq!(input.movement(), Vec2::ZERO);
+    }
+
+    #[test]
+    fn the_thumbstick_wins_over_a_stray_key() {
+        // A device with an on-screen stick has no keyboard to fall back to.
+        let map = InputMap::with_defaults();
+        let mut input = InputState::new();
+        let mut devices = pressing(&[KeyCode::KeyW]);
+        devices.touch_movement = Vec2::RIGHT;
+        input.update(&map, &devices);
+        assert_eq!(input.movement(), Vec2::RIGHT);
+    }
+
+    #[test]
+    fn releasing_everything_clears_touch_too() {
+        let map = InputMap::with_defaults();
+        let mut input = InputState::new();
+        input.update(
+            &map,
+            &DeviceState {
+                touch_actions: vec![actions::USE],
+                touch_movement: Vec2::DOWN,
+                ..DeviceState::default()
+            },
+        );
+        input.release_all();
+        assert!(!input.is_down(actions::USE));
+        assert_eq!(input.movement(), Vec2::ZERO);
     }
 
     #[test]
