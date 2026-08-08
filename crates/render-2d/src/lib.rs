@@ -69,12 +69,16 @@
 
 pub mod camera;
 pub mod gpu;
+pub mod present;
 pub mod renderer;
 pub mod sprite;
+pub mod surface;
 pub mod texture;
 
 pub use camera::Camera2D;
 pub use gpu::{GpuContext, GpuError};
+pub use present::Presenter;
 pub use renderer::{integer_scale, letterbox, FrameSettings, RenderTarget, SpriteRenderer};
 pub use sprite::{Color, DrawSprite, SpriteBatcher, SpriteInstance};
+pub use surface::SurfaceContext;
 pub use texture::TextureArray;

@@ -17,8 +17,8 @@
 
 use verdant_core_math::{fx, Fx, Rect, Vec2};
 use verdant_render_2d::{
-    Camera2D, Color, DrawSprite, FrameSettings, GpuContext, RenderTarget, SpriteBatcher,
-    SpriteRenderer, TextureArray,
+    Camera2D, Color, DrawSprite, FrameSettings, GpuContext, Presenter, RenderTarget,
+    SpriteBatcher, SpriteRenderer, TextureArray,
 };
 
 /// The scene fixture the tests draw with.
@@ -611,4 +611,215 @@ fn render_to_png() {
 
     let frame = harness.render(&camera, &mut batcher, Color::BLACK);
     frame.write_png(std::path::Path::new("target/golden-diffs/scene.png"));
+}
+
+// ---------------------------------------------------------------------------
+// The present pass
+// ---------------------------------------------------------------------------
+
+/// Renders a low-resolution frame and presents it into a larger target.
+///
+/// The destination is an ordinary [`RenderTarget`] rather than a swapchain, so
+/// the upscale is verifiable with no window — which is the only way it can be
+/// tested in CI at all.
+fn present_into(
+    harness: &mut Harness,
+    camera: &Camera2D,
+    batcher: &mut SpriteBatcher,
+    clear: Color,
+    destination: (u32, u32),
+    border: Color,
+) -> Frame {
+    harness.renderer.render(
+        &harness.gpu,
+        &harness.target,
+        &harness.bind_group,
+        camera,
+        batcher.prepare(),
+        FrameSettings {
+            clear,
+            global_tint: Color::WHITE,
+        },
+    );
+
+    let window = RenderTarget::new(&harness.gpu, destination.0, destination.1);
+    let presenter = Presenter::new(&harness.gpu, RenderTarget::FORMAT);
+    let source = presenter.bind_source(&harness.gpu, &harness.target);
+    presenter.present(
+        &harness.gpu,
+        window.view(),
+        &source,
+        (harness.target.width(), harness.target.height()),
+        destination,
+        border,
+    );
+
+    let pixels = window
+        .read_pixels(&harness.gpu)
+        .expect("the presented frame should read back");
+    Frame {
+        pixels,
+        width: destination.0,
+        height: destination.1,
+    }
+}
+
+#[test]
+fn presenting_scales_the_frame_by_a_whole_number() {
+    // A 32x32 frame into a 128x128 window is exactly 4x, filling it entirely.
+    let Some(mut harness) = Harness::new(32, 32, 1) else {
+        return;
+    };
+    harness
+        .atlas
+        .fill_layer(&harness.gpu, 0, Color::from_srgb_hex(0xD2_69_1E))
+        .expect("writable");
+
+    let mut camera = Camera2D::new(32, 32);
+    camera.position = Vec2::from_ints(16, 16);
+
+    let mut batcher = SpriteBatcher::new();
+    // A 16x16 sprite in the top-left quadrant of the low-res frame.
+    batcher.push(DrawSprite::new(
+        Vec2::from_ints(8, 16),
+        Vec2::from_ints(16, 16),
+        0,
+    ));
+
+    let frame = present_into(
+        &mut harness,
+        &camera,
+        &mut batcher,
+        Color::BLACK,
+        (128, 128),
+        Color::BLACK,
+    );
+
+    // The sprite covered the low-res rect x 0..16, y 0..16; at 4x that is
+    // 0..64 in both axes of the window.
+    let sprite = frame.at(32, 32);
+    assert!(sprite[0] > 100, "the scaled sprite should be here: {sprite:?}");
+    assert_eq!(
+        frame.at(96, 96),
+        [0, 0, 0, 255],
+        "the rest of the frame should be the clear colour"
+    );
+}
+
+#[test]
+fn a_source_texel_covers_an_exact_block_of_screen_pixels() {
+    // This is what integer scaling buys, and the property a fractional scale
+    // would break: one texel must not spill a row into its neighbour.
+    let Some(mut harness) = Harness::new(32, 32, 1) else {
+        return;
+    };
+    harness
+        .atlas
+        .fill_layer(&harness.gpu, 0, Color::WHITE)
+        .expect("writable");
+
+    let mut camera = Camera2D::new(32, 32);
+    camera.position = Vec2::from_ints(16, 16);
+
+    let mut batcher = SpriteBatcher::new();
+    batcher.push(DrawSprite::new(
+        Vec2::from_ints(8, 16),
+        Vec2::from_ints(16, 16),
+        0,
+    ));
+
+    let frame = present_into(
+        &mut harness,
+        &camera,
+        &mut batcher,
+        Color::BLACK,
+        (128, 128),
+        Color::BLACK,
+    );
+
+    // The edge sits at low-res x = 16, so window x = 64 exactly. The pixel
+    // before it is inside the sprite and the pixel at it is outside.
+    assert!(frame.at(63, 32)[0] > 100, "x=63 should be inside the sprite");
+    assert_eq!(
+        frame.at(64, 32),
+        [0, 0, 0, 255],
+        "x=64 should be the first pixel past the sprite"
+    );
+}
+
+#[test]
+fn a_mismatched_window_letterboxes_rather_than_stretching() {
+    // 32x32 into 200x100: the largest whole scale that fits is 3x, giving a
+    // 96x96 image centred with 52 pixels of border either side.
+    let Some(mut harness) = Harness::new(32, 32, 1) else {
+        return;
+    };
+    let mut batcher = SpriteBatcher::new();
+    let frame = present_into(
+        &mut harness,
+        &Camera2D::new(32, 32),
+        &mut batcher,
+        Color::from_srgb_hex(0x40_80_C0),
+        (200, 100),
+        Color::BLACK,
+    );
+
+    assert_eq!(
+        frame.at(2, 50),
+        [0, 0, 0, 255],
+        "the left border should be the letterbox colour"
+    );
+    assert_eq!(
+        frame.at(197, 50),
+        [0, 0, 0, 255],
+        "the right border should be the letterbox colour"
+    );
+    assert!(
+        frame.at(100, 50)[2] > 100,
+        "the centre should hold the presented frame"
+    );
+    assert_eq!(
+        frame.at(100, 1),
+        [0, 0, 0, 255],
+        "the top border should be the letterbox colour"
+    );
+}
+
+#[test]
+fn presenting_is_reproducible() {
+    let Some(mut harness) = Harness::new(32, 32, 1) else {
+        return;
+    };
+    harness
+        .atlas
+        .fill_layer(&harness.gpu, 0, Color::from_srgb_hex(0x8F_BC_5A))
+        .expect("writable");
+
+    let mut camera = Camera2D::new(32, 32);
+    camera.position = Vec2::from_ints(16, 16);
+
+    let sprite = DrawSprite::new(Vec2::from_ints(12, 20), Vec2::from_ints(12, 12), 0);
+    let mut first_batch = SpriteBatcher::new();
+    first_batch.push(sprite);
+    let first = present_into(
+        &mut harness,
+        &camera,
+        &mut first_batch,
+        Color::BLACK,
+        (96, 96),
+        Color::BLACK,
+    );
+
+    let mut second_batch = SpriteBatcher::new();
+    second_batch.push(sprite);
+    let second = present_into(
+        &mut harness,
+        &camera,
+        &mut second_batch,
+        Color::BLACK,
+        (96, 96),
+        Color::BLACK,
+    );
+
+    assert_eq!(first.pixels, second.pixels);
 }

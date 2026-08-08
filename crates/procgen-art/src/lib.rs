@@ -54,6 +54,7 @@
 #![doc(html_no_source)]
 
 pub mod canvas;
+pub mod font;
 pub mod generators;
 pub mod provenance;
 
